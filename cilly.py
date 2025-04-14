@@ -1,7 +1,17 @@
 import sys
 from cilly_interpreter import cilly_eval, cilly_lexer, cilly_parser
+import turtle
 
-env = {}
+env = {
+    "forward": lambda *args: turtle.forward(*args),
+    "backward": lambda *args: turtle.backward(*args),
+    "right": lambda *args: turtle.right(*args),
+    "left": lambda *args: turtle.left(*args),
+    "penup": lambda: turtle.penup(),
+    "pendown": lambda: turtle.pendown(),
+    "pencolor": lambda *args: turtle.pencolor(*args),
+    "color": lambda *args: turtle.color(*args),
+}
 
 
 def reply():
