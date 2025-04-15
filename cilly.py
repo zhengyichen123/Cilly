@@ -20,9 +20,9 @@ def reply():
                     with open(filename, "r") as f:
                         code = f.read()
                     tokens = cilly_lexer(code)
-                    print(tokens)
+                    # print(tokens)
                     ast = cilly_parser(tokens)
-                    print(ast)
+                    # print(ast)
                     cilly_eval(ast, env)
                     break
                 if line:
@@ -32,9 +32,9 @@ def reply():
                     continue
                 # 尝试解析代码
                 tokens = cilly_lexer(code)
-                print(tokens)
+                # print(tokens)
                 ast = cilly_parser(tokens)
-                print(ast)
+                # print(ast)
                 break  # 解析成功，退出输入循环
             except Exception as e:
                 # print(e)
