@@ -552,7 +552,6 @@ def cilly_parser(tokens):
     def expr_stat():
         e = expr()
         match(";")
-
         return ["expr_stat", e]
 
     def literal(bp=0):
@@ -754,7 +753,7 @@ def mk_str(s):
 TRUE = ["bool", True]
 FALSE = ["bool", False]
 
-
+   
 def mk_bool(b):
     return TRUE if b else FALSE
 
@@ -1063,24 +1062,27 @@ def cilly_eval(ast, env):
 
     def ev_call(node, env):
         _, f_expr, args = node
-
-        p = visit(f_expr, env)
-        if p[0] != "proc":
-            err(f"非法函数{p}")
-
-        _, params, body = p
-
-        args = [visit(a, env) for a in args]
-
-        old = env
-
-        env = {p: a for (p, a) in zip(params, args)}
-
-        v = visit(body, env)
-
-        env = old
-
-        return v
+        f = visit(f_expr, env)
+        if isinstance(f, list) and f[0] == "proc":
+            _, params, body = f
+            evaluated_args = [visit(a, env) for a in args]
+            if len(params) != len(evaluated_args):
+                err(
+                    f"参数数量不匹配: 期望 {len(params)} 个，实际 {len(evaluated_args)} 个"
+                )
+            local_env = env.copy()
+            for param, arg in zip(params, evaluated_args):
+                local_env[param] = arg
+            return visit(body, local_env)
+        elif callable(f):
+            evaluated_args = [val(visit(a, env)) for a in args]
+            try:
+                f(*evaluated_args)
+                return NULL
+            except Exception as e:
+                err(f"调用 Python 函数时出错: {e}")
+        else:
+            err(f"非法函数: {f}")
 
     visitors = {
         "program": ev_program,
