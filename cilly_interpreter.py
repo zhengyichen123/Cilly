@@ -164,7 +164,7 @@ def make_str_reader(s, err):
     return peek, match, next
 
 
-cilly_op1 = ["(", ")", "{", "}", ",", ";", "+", "-", "*", "/", "^"]
+cilly_op1 = ["(", ")", "{", "}","[", "]", ",", ";", "+", "-", "*", "/", "^", ":", "."]
 
 cilly_op2 = {
     ">": ">=",
@@ -303,6 +303,7 @@ EOF = mk_tk("eof")
 def make_token_reader(ts, err):
     pos = -1
     cur = None
+    opos = -1
 
     # 返回token标识符
     def peek(p=0):
@@ -331,10 +332,19 @@ def make_token_reader(ts, err):
             cur = ts[pos]
 
         return old
+    
+    def mark():
+        nonlocal opos
+        opos = pos
+
+    def backroll():
+        nonlocal pos, cur
+        pos = opos
+        cur = ts[pos]
 
     next()
 
-    return peek, match, next
+    return peek, match, next, mark, backroll
 
 
 # 语法分析器
@@ -346,7 +356,7 @@ def cilly_parser(tokens):
         if peek() == "eof":
             err(f"需要" + msg)
 
-    peek, match, next = make_token_reader(tokens, err)
+    peek, match, next, mark, backroll = make_token_reader(tokens, err)
 
     def program():
 
@@ -364,7 +374,7 @@ def cilly_parser(tokens):
         if t == "var":
             return define_stat()
         # 标量标识符
-        if t == "id" and peek(1) == "=":
+        if t == "id":
             return assign_stat()
 
         if t == "print":
@@ -393,8 +403,8 @@ def cilly_parser(tokens):
 
         if t == "fun":  # 新增 'fun'
             return fun_stat()
-
-        return expr_stat()
+        
+        return err(f"语法错误,位置在{t}")
 
     def define_stat():
         match("var")
@@ -410,13 +420,21 @@ def cilly_parser(tokens):
         return ["define", id, e]
 
     def assign_stat():
-        id = tk_val(match("id"))
+
+        mark();
+
+        id = expr()
+
+        if peek() != "=":
+            backroll()
+            return expr_stat()
 
         match("=")
 
         e = expr()
 
-        match(";")
+        if peek() != ")":
+            match(";")
 
         return ["assign", id, e]
 
@@ -465,13 +483,13 @@ def cilly_parser(tokens):
         match("for")
         match("(")
 
-        init = expr()
+        init = assign_stat()
         # print(init)
-        match(";")
+        # match(";")
         cond = expr()
         # print(cond)
         match(";")
-        step = expr()
+        step = assign_stat()
         # print(step)
         match(")")
 
@@ -482,20 +500,15 @@ def cilly_parser(tokens):
 
     def fun_stat():
         match("fun")
-
         id = tk_val(match("id"))
-
         match("(")
-
         if peek() == ")":
             alist = []
         else:
             alist = params()
-
         match(")")
         check("一个语句")
         body = statement()
-
         return ["fun_def", id, alist, body]
 
     def while_stat():
@@ -505,13 +518,11 @@ def cilly_parser(tokens):
         match(")")
         check("一个语句")
         body = statement()
-
         return ["while", cond, body]
 
     def continue_stat():
         match("continue")
         match(";")
-
         return ["continue"]
 
     def break_stat():
@@ -521,21 +532,16 @@ def cilly_parser(tokens):
 
     def return_stat():
         match("return")
-
         if peek() != ";":
             e = expr()
         else:
             e = None
-
         match(";")
-
         return ["return", e]
 
     def block_stat():
         match("{")
-
         r = []
-
         check("一个语句")
         while peek() != "}":
             r.append(statement())
@@ -548,18 +554,6 @@ def cilly_parser(tokens):
         match(";")
 
         return ["expr_stat", e]
-
-    def if_expr(left, bp=0):
-        match("?")
-        true_expr = expr(bp)
-        match(":")
-        false_expr = expr(bp)
-        return ["if_expr", left, true_expr, false_expr]
-
-    def pow_expr(left, bp=0):
-        op = tk_tag(next())
-        right = expr(bp)
-        return ["pow", op, left, right]
 
     def literal(bp=0):
         return next()
@@ -603,6 +597,41 @@ def cilly_parser(tokens):
 
         return e
 
+    def array_expr(bp=0):
+        match("[")
+        elements = []
+        while True:
+            if peek() == ",":
+                elements.append(mk_tk("null"))
+                match(",")
+            elif peek() == "]":
+                elements.append(mk_tk("null"))
+                break    
+            else:
+                elements.append(expr()) 
+                if peek() == "]":
+                    break
+                match(",")
+        match("]")
+        return ["array", elements]
+
+    def struct_expr(bp=0):
+        match("{")
+        fields = {}
+        if peek() != "}":
+            key = tk_val(match("id"))
+            match(":")
+            value = expr()
+            fields[key] = value
+            while peek() == ",":
+                match(",")
+                key = tk_val(match("id"))
+                match(":")
+                value = expr()
+                fields[key] = value                
+        match("}")
+        return ["struct", fields]
+
     op1 = {
         "id": (100, literal),
         "num": (100, literal),
@@ -614,6 +643,8 @@ def cilly_parser(tokens):
         "!": (85, unary),
         "fun": (98, fun_expr),
         "(": (100, parens),
+        "[": (100, array_expr),
+        "{" : (100, struct_expr),
     }
 
     def get_op1_parser(t):
@@ -623,12 +654,16 @@ def cilly_parser(tokens):
         return op1[t]
 
     def binary(left, bp):
-
         op = tk_tag(next())
-
         right = expr(bp)
-
         return ["binary", op, left, right]
+
+    def if_expr(left, bp=0):
+        match("?")
+        true_expr = expr(bp)
+        match(":")
+        false_expr = expr(bp)
+        return ["if_expr", left, true_expr, false_expr]
 
     def call(fun_expr, bp=0):
         match("(")
@@ -639,21 +674,32 @@ def cilly_parser(tokens):
         match(")")
         return ["call", fun_expr, alist]
 
-    def assign_expr(left, bp):
-        """处理形如 id = expr 的赋值表达式"""
-        if left[0] != "id":
-            error(f"赋值表达式左侧必须为标识符，实际得到 {left}")
+    # def assign_expr(left, bp):
+    #     # 处理形如 id = expr 的赋值表达式, 用于for循环
+    #     if left[0] != "id":
+    #         error(f"赋值表达式左侧必须为标识符，实际得到 {left}")
 
-        match("=")
-        value = expr(bp)
-        return ["assign", left[1], value]
+    #     match("=")
+    #     value = expr(bp)
+    #     return ["assign", left, value]
+
+    def array_access_expr(left, bp=0):
+        match("[")
+        index = expr()
+        match("]")
+        return ["array_access", left, index]
+
+    def struct_access_expr(left, bp=0):
+        match(".")
+        field = tk_val(match("id"))
+        return ["struct_access", left, field]
 
     op2 = {
         "*": (80, 81, binary),
         "/": (80, 81, binary),
         "+": (70, 71, binary),
         "-": (70, 71, binary),
-        "=": (20, 21, assign_expr),
+        # "=": (20, 21, assign_expr),
         "^": (90, 89, binary),  # 右结合
         ">": (60, 61, binary),
         ">=": (60, 61, binary),
@@ -666,6 +712,8 @@ def cilly_parser(tokens):
         "?": (20, 19, if_expr),  # 新增 '?'
         ":": (20, 21, None),  # 新增 ':'
         "(": (90, 91, call),
+        "[": (90, 91, array_access_expr),
+        ".": (90, 91, struct_access_expr),
     }
 
     def get_op2_parser(t):
@@ -923,10 +971,39 @@ def cilly_eval(ast, env):
         return NULL
 
     def ev_assign(node, env):
-        _, name, e = node
-        v = visit(e, env)
-
-        set_var(env, name, v)
+        _, target, value_expr = node
+        value = visit(value_expr, env)
+        # 根据左值类型处理
+        if target[0] == "id":
+            # 普通变量赋值
+            set_var(env, target[1], value)
+        elif target[0] == "array_access":
+            # 数组元素赋值 arr[0] = 5
+            arr_expr, index_expr = target[1], target[2]
+            arr = visit(arr_expr, env)
+            index = val(visit(index_expr, env))
+            # 类型检查
+            if arr[0] != "array":
+                error("assign", "只能对数组类型进行索引赋值")
+            if not isinstance(index, int):
+                error("assign", "数组索引必须是整数")
+            if index < 0 or index >= len(arr[1]):
+                error("assign", f"数组索引越界: {index}")
+            # 执行赋值
+            arr[1][index] = value
+        elif target[0] == "struct_access":
+            # 结构体属性赋值 obj.field = 5
+            obj_expr, field = target[1], target[2]
+            obj = visit(obj_expr, env)
+            # 类型检查
+            if obj[0] != "struct":
+                error("assign", "只能对结构体类型进行属性赋值")
+            if field not in obj[1]:
+                error("assign", f"不存在的字段: {field}")
+            # 执行赋值
+            obj[1][field] = value
+        else:
+            err("非法的左值表达式")
         return NULL
 
     def ev_return(node, env):
@@ -945,6 +1022,44 @@ def cilly_eval(ast, env):
         _, name, params, body = node
         define_var(env, name, ["proc", params, body])
         return NULL
+
+    def ev_array(node, env):
+        _, elements = node
+        evaluated_elements = [visit(e, env) for e in elements]
+        return ["array", evaluated_elements]
+
+    def ev_struct(node, env):
+        _, fields = node
+        evaluated_fields = {}
+        for key, value_expr in fields.items():
+            evaluated_fields[key] = visit(value_expr, env)
+        return ["struct", evaluated_fields]
+
+    def ev_array_access(node, env):
+        _, arr_expr, index_expr = node
+
+        arr = visit(arr_expr, env)
+        index = val(visit(index_expr, env))
+
+        if arr[0] != "array":
+            err("只能对数组类型进行索引访问")
+        if not isinstance(index, int):
+            err("数组索引必须是整数")
+        if index < 0 or index >= len(arr[1]):
+            err(f"数组索引越界: {index}")
+        return arr[1][index]
+
+    def ev_struct_access(node, env):
+        _, obj_expr, field = node
+        # 计算结构体实例
+        obj = visit(obj_expr, env)
+
+        # 类型检查
+        if obj[0] != "struct":
+            error("struct_access", "只能对结构体类型进行属性访问")
+        if field not in obj[1]:
+            error("struct_access", f"不存在的字段: {field}")
+        return obj[1][field]
 
     def ev_call(node, env):
         _, f_expr, args = node
@@ -993,6 +1108,10 @@ def cilly_eval(ast, env):
         "for": ev_for,
         "fun_def": ev_fun_def,
         "if_expr": ev_if_expr,
+        "array": ev_array,
+        "struct": ev_struct,
+        "array_access": ev_array_access,
+        "struct_access": ev_struct_access,
     }
 
     def visit(node, env):
