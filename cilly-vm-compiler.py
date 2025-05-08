@@ -669,7 +669,7 @@ def cilly_vm_compiler(ast, code, consts, scopes):
         elif op == '!':
             emit(UNARY_NOT)
         else:
-            err(f'非法一元运算符：{opcode}')
+            err(f'非法一元运算符：{op}')
             
     def compile_binary(node):
         _, op, e1, e2 = node
@@ -735,7 +735,7 @@ def cilly_vm_compiler(ast, code, consts, scopes):
         elif op == '>=':
             emit(BINARY_GE)
         else:
-            err(f'非法二元运算符：{opcode}')
+            err(f'非法二元运算符：{op}')
 
     def compile_if(node):
         _, cond, true_s, false_s = node
