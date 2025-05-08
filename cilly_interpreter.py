@@ -115,7 +115,6 @@ ws : (' ' | '\r' | '\n' | '\t)+
 
 """
 
-import turtle
 def error(src, msg):
     raise Exception(f"{src} : {msg}")
 
@@ -410,7 +409,14 @@ def cilly_parser(tokens):
         return ["define", id, e]
 
     def assign_stat():
-        id = tk_val(match("id"))
+
+        mark()
+
+        id = expr()
+
+        if peek() != "=":
+            backroll()
+            return expr_stat()
 
         match("=")
 
