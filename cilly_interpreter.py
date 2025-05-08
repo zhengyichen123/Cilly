@@ -373,9 +373,6 @@ def cilly_parser(tokens):
         # 变量声明符
         if t == "var":
             return define_stat()
-        # 标量标识符
-        if t == "id":
-            return assign_stat()
 
         if t == "print":
             return print_stat()
@@ -403,8 +400,9 @@ def cilly_parser(tokens):
 
         if t == "fun":  # 新增 'fun'
             return fun_stat()
-        
-        return err(f"语法错误,位置在{t}")
+    
+    
+        return assign_stat()
 
     def define_stat():
         match("var")
@@ -421,7 +419,7 @@ def cilly_parser(tokens):
 
     def assign_stat():
 
-        mark();
+        mark()
 
         id = expr()
 
@@ -753,7 +751,7 @@ def mk_str(s):
 TRUE = ["bool", True]
 FALSE = ["bool", False]
 
-   
+
 def mk_bool(b):
     return TRUE if b else FALSE
 
@@ -1190,9 +1188,16 @@ def cilly_eval(ast, env):
 # }
 # print(ans);
 # """
+# p1 = """
+# var i = 1 + 2 * 3;
+# 1;
+# "hello";
+# print(123,"hello", "world", true);
+# """
 
+# env = {}
 # tokens = cilly_lexer(p1)
 # print(tokens)
 # ast = cilly_parser(tokens)
 # print(ast)
-# v = cilly_eval(ast)
+# v = cilly_eval(ast, env)
