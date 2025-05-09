@@ -539,6 +539,22 @@ def cilly_vm_dis(code, consts, var_names):
             print(f'{pc}\t LOAD_CONST {index} ({v})')
             
             pc = pc + 2
+        elif opcode == LOAD_VAR:
+            scope_i = code[pc + 1]
+            index = code[pc + 2]
+            v = var_names[(scope_i, index, 'L')]
+
+            print(f'{pc}\t LOAD_VAR {scope_i} {index} ({v})')
+            pc = pc + 3
+        
+        elif opcode == STORE_VAR:
+            scope_i = code[pc + 1]
+            index = code[pc + 2]
+            v = var_names[(scope_i, index, 'S')]
+
+            print(f'{pc}\t STORE_VAR {scope_i} {index} ({v})')
+            pc = pc + 3
+
         elif opcode in OPS_NAME:
             name, size = OPS_NAME[opcode]
             
@@ -554,10 +570,12 @@ def cilly_vm_dis(code, consts, var_names):
         else:
             err(f'非法opcode:{opcode}')
         
-vars_name = [
-    'i',
-    'sum',
-]
+# vars_name = [
+#     'i',
+#     'sum',
+# ]
+
+vars_name = {}
 
 #cilly_vm_dis(p1, consts, vars_name)
 
@@ -606,22 +624,22 @@ def cilly_vm_compiler(ast, code, consts, scopes):
             code[addr + 2] = operand2
    
     def define_var(name):
-        scope = scopes[-1]
+        scope = scopes[-1]  #选择当前scope进行查询
         
         for i in range(len(scope)):
             if scope[i] == name:
                 err(f'已定义变量: {name}')
                 
         scope.append(name)
-        return len(scope) - 1
+        return len(scope) - 1    #返回该变量名称在当前scope的索引
     
     def lookup_var(name):
         for scope_i in range( len(scopes) ):
-            scope = scopes[-scope_i-1]
+            scope = scopes[-scope_i-1]  #从当前scope查起，如果查不到就到父scope中查询
             
             for index in range(len(scope)):
                 if scope[index] == name:
-                    return scope_i, index
+                    return scope_i, index #返回scope号和变量在该scope中的index
                 
         err(f'未定义变量：{name}')
         
@@ -785,6 +803,7 @@ def cilly_vm_compiler(ast, code, consts, scopes):
         
         index = define_var(name)
         emit(STORE_VAR, 0, index)
+        vars_name[(0, index, 'S')] = name
         
     def compile_assign(node):
         _, name, e = node
@@ -793,13 +812,16 @@ def cilly_vm_compiler(ast, code, consts, scopes):
         
         scope_i, index = lookup_var(val(name))
         emit(STORE_VAR, scope_i, index)
+        vars_name[(scope_i, index, 'S')] = val(name)
         
     def compile_id(node):
         _, name = node
         
         scope_i, index = lookup_var(name)
         emit(LOAD_VAR, scope_i, index)
-    
+        vars_name[(scope_i, index, 'L')] = name
+
+        
     while_stack = Stack()
     def compile_while(node):
         _, cond, body = node
@@ -876,6 +898,12 @@ def cilly_vm_compiler(ast, code, consts, scopes):
     return code, consts, scopes
 
 
+pDef = '''
+var x = 10;
+var y = 5;
+x = y;
+print(x);
+'''
 
 pNum = '''
 1 + 2 * 3;
@@ -954,10 +982,10 @@ while(i > 0)
 }
 
 '''
-ts = cilly_lexer(pWhile)
+ts = cilly_lexer(pDef)
 ast = cilly_parser(ts)
 print(ast)
 code, consts, scopes = cilly_vm_compiler(ast, [], [], [])
 cilly_vm(code, consts, scopes)
-cilly_vm_dis(code, consts, [])
+cilly_vm_dis(code, consts, vars_name)
 
