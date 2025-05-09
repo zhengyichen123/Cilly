@@ -984,6 +984,16 @@ var even = fun(n) {
  else
    return odd(n-1);
 };
+{
+    print(even(3), odd(3));
+    var x = fun(a, b){
+        return a + b;
+    };
+    var y = fun(a, b){
+        return a * b;
+    };
+    print(x(1, 2), y(1, 2));
+}
 
 print(even(3), odd(3));
 """
