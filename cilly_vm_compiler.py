@@ -811,6 +811,12 @@ def cilly_vm_compiler(ast, code, consts, scopes):
         addr = emit(ENTER_SCOPE, -1)
 
         for s in statements:
+            tag = s[0]
+            if tag == "define":
+                _, name, e = s
+                define_var(name)
+
+        for s in statements:
             visit(s)
 
         emit(LEAVE_SCOPE)
@@ -821,7 +827,8 @@ def cilly_vm_compiler(ast, code, consts, scopes):
     def compile_define(node):
         _, name, e = node
 
-        index = define_var(name)
+        # index = define_var(name)
+        _, index = lookup_var(name)
         visit(e)
 
         emit(STORE_VAR, 0, index)
