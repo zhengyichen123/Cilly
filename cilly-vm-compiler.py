@@ -263,7 +263,7 @@ def cilly_vm(code, consts, scopes):
     
     def leave_scope(pc):
         nonlocal scopes
-        scopes = scopes[:-1] #不用scopes.pop()
+        scopes = scopes[:-1] #不用scopes.pop()，是由于我们并不需要最后一个元素
         
         return pc + 1
     def print_item(pc):
@@ -576,14 +576,17 @@ def cilly_vm_compiler(ast, code, consts, scopes):
                 return i
             
         consts.append(c)
-        return len(consts) - 1
+        return len(consts) - 1 #返回当前存储的数的列表在consts中的索引
     
     def get_next_emit_addr():
-        return len(code)
+        return len(code) #返回待填充的下一位置的索引
+    
+    def get_current_scopes_depth():
+        return len(scopes)
     
     def emit(opcode, operand1 = None, operand2 = None):
         
-        addr = get_next_emit_addr()
+        addr = get_next_emit_addr() 
         
         code.append(opcode)
         
@@ -750,10 +753,10 @@ def cilly_vm_compiler(ast, code, consts, scopes):
         else:
             addr2 = emit(JMP, -1)
         
-            backpatch(addr1, get_next_emit_addr())
+            backpatch(addr1, get_next_emit_addr()) #在此处backpatch,如果条件错误，避开JMP跳转，执行false_s
         
             visit(false_s)
-            backpatch(addr2, get_next_emit_addr())
+            backpatch(addr2, get_next_emit_addr()) 
 
     def compile_block(node):
         _, statements = node
@@ -788,7 +791,7 @@ def cilly_vm_compiler(ast, code, consts, scopes):
         
         visit(e)
         
-        scope_i, index = lookup_var(name)
+        scope_i, index = lookup_var(val(name))
         emit(STORE_VAR, scope_i, index)
         
     def compile_id(node):
@@ -796,15 +799,45 @@ def cilly_vm_compiler(ast, code, consts, scopes):
         
         scope_i, index = lookup_var(name)
         emit(LOAD_VAR, scope_i, index)
+    
+    while_stack = Stack()
+    def compile_while(node):
+        _, cond, body = node
+        loop_start = get_next_emit_addr()
+        while_stack.push((loop_start, [], get_current_scopes_depth()))
+        visit(cond)
+        false_addr = emit(JMP_FALSE, -1) #判断循环条件，当条件为false时跳转到循环结束位置，当前位置未知，暂定-1，以后回填
+        visit(body)
+        emit(JMP, loop_start) #循环代码执行完毕，跳转到循环开始，再进行条件判定
+        loop_over = get_next_emit_addr() #整个循环体逻辑执行完毕，记录循环结束的opcode位置
+        _, breaklist, _ = while_stack.pop()
+        for b in breaklist:             #回填代码中出现的所有break
+            backpatch(b, loop_over)   
+        backpatch(false_addr, loop_over) #回填false条件的addr
+    
+    def compile_break(node):   #如果出现break语句，跳转到当前循环结束，但是结束位置未知
+        _, breaklist, saved_depth = while_stack.top()
+        for i in range(0, get_current_scopes_depth() - saved_depth):
+            emit(LEAVE_SCOPE)    #注意要在跳转之前退出作用域，否则本指令将被JMP忽略掉
+        break_addr = emit(JMP, -1)
+        breaklist.append(break_addr) #在当前循环暂存break_addr，当循环其它代码转换为opcode后回填
         
+    
+    def compile_continue(node): #如果出现continue语句，直接跳转到当前循环开始
+        loop_start, _ , saved_depth = while_stack.top()
+        for i in range(0, get_current_scopes_depth() - saved_depth):
+            emit(LEAVE_SCOPE)
+        emit(JMP, loop_start)
+
+
     visitors = {
         'program': compile_program,
          'expr_stat': compile_expr_stat,
          'print': compile_print,
          'if': compile_if,
-#         'while': compile_while,
-#         'break': compile_break,
-#         'continue': compile_continue,
+         'while': compile_while,
+         'break': compile_break,
+         'continue': compile_continue,
 #         
          'define': compile_define,
          'assign': compile_assign,
@@ -844,37 +877,39 @@ def cilly_vm_compiler(ast, code, consts, scopes):
 
 
 
-p12 = '''
+pNum = '''
 1 + 2 * 3;
 print(3 *4 - 5, 6 / 2);
 '''
 
-p1 = '''
+
+pBool = '''
 print(false && true);
 '''
 
-p1 = '''
+pIf_else = '''
 if(1 > 2)
     print(3);
 else
     print(4);
 '''
 
-p1 = '''
+pIf = '''
 if( 1 > 2)
     print(3);
 print(4);
 '''
 
-p1 = '''
+pIfa = '''
 if( 1 > 2 && 5 > 4)
     print(30);
 else
     print(42);
 '''
 
-p1 = '''
+pScopes = '''
 var x1 = 100;
+
 
 {
     var x1 = 200;
@@ -888,15 +923,41 @@ var x1 = 100;
 print("outer x1", x1);
 '''
 
-p11 = '''
+pstr = '''
 1;
 "hello";
 print(123,"hello", "world", true);
 '''
-ts = cilly_lexer(p1)
+
+pWhile = '''
+var i = 5;
+var x = 3;
+while(i > 0)
+{
+   while(x > 0)
+   {
+      if (x == 2)
+      {
+         print("此时x = 2, 执行break，退出循环");
+         break;
+      }
+      print(x);
+      x = x - 1;
+   }
+   i = i - 1;
+   if (i == 4)
+   {
+      print("执行continue,不输出4");
+      continue;
+   }
+   print(i);
+}
+
+'''
+ts = cilly_lexer(pWhile)
 ast = cilly_parser(ts)
 print(ast)
 code, consts, scopes = cilly_vm_compiler(ast, [], [], [])
 cilly_vm(code, consts, scopes)
-
+cilly_vm_dis(code, consts, [])
 
