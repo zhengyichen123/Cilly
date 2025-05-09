@@ -574,7 +574,7 @@ def cilly_parser(tokens):
         check("block_statement")
         body = block_stat()
 
-        return ["fun", plist, body]
+        return ["fun_expr", plist, body]
 
     def params():
         r = [tk_val(match("id"))]
@@ -1011,7 +1011,7 @@ def cilly_eval(ast, env):
         else:
             return NULL
 
-    def ev_fun(node, env):
+    def ev_fun_expr(node, env):
         _, params, body = node
         return mk_proc(params, body)
 
@@ -1096,7 +1096,7 @@ def cilly_eval(ast, env):
         "unary": ev_unary,
         "binary": ev_binary,
         "return": ev_return,
-        "fun": ev_fun,
+        "fun_expr": ev_fun_expr,
         "call": ev_call,
         "id": ev_id,
         "num": ev_literal,
@@ -1189,15 +1189,22 @@ def cilly_eval(ast, env):
 # print(ans);
 # """
 # p1 = """
-# var i = 1 + 2 * 3;
-# 1;
-# "hello";
-# print(123,"hello", "world", true);
+# var a = fun(x, y){
+#     return x + y;
+# };
+# fun b(x, y){
+#     return x - y;
+# }
+# var x = b(1, 2);
+# print(x);
+# print(a(1, 2));
 # """
 
 # env = {}
 # tokens = cilly_lexer(p1)
+# print("tokens:")
 # print(tokens)
 # ast = cilly_parser(tokens)
+# print("ast:")
 # print(ast)
 # v = cilly_eval(ast, env)
