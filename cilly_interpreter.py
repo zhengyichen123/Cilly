@@ -115,7 +115,6 @@ ws : (' ' | '\r' | '\n' | '\t)+
 
 """
 
-import turtle
 def error(src, msg):
     raise Exception(f"{src} : {msg}")
 
@@ -373,9 +372,6 @@ def cilly_parser(tokens):
         # 变量声明符
         if t == "var":
             return define_stat()
-        # 标量标识符
-        if t == "id":
-            return assign_stat()
 
         if t == "print":
             return print_stat()
@@ -403,8 +399,9 @@ def cilly_parser(tokens):
 
         if t == "fun":  # 新增 'fun'
             return fun_stat()
-        
-        return err(f"语法错误,位置在{t}")
+    
+    
+        return assign_stat()
 
     def define_stat():
         match("var")
@@ -421,7 +418,7 @@ def cilly_parser(tokens):
 
     def assign_stat():
 
-        mark();
+        mark()
 
         id = expr()
 
@@ -552,7 +549,6 @@ def cilly_parser(tokens):
     def expr_stat():
         e = expr()
         match(";")
-
         return ["expr_stat", e]
 
     def literal(bp=0):
@@ -577,7 +573,7 @@ def cilly_parser(tokens):
         check("block_statement")
         body = block_stat()
 
-        return ["fun", plist, body]
+        return ["fun_expr", plist, body]
 
     def params():
         r = [tk_val(match("id"))]
@@ -1014,7 +1010,7 @@ def cilly_eval(ast, env):
         else:
             return NULL
 
-    def ev_fun(node, env):
+    def ev_fun_expr(node, env):
         _, params, body = node
         return mk_proc(params, body)
 
@@ -1097,7 +1093,7 @@ def cilly_eval(ast, env):
         "unary": ev_unary,
         "binary": ev_binary,
         "return": ev_return,
-        "fun": ev_fun,
+        "fun_expr": ev_fun_expr,
         "call": ev_call,
         "id": ev_id,
         "num": ev_literal,
@@ -1189,9 +1185,23 @@ def cilly_eval(ast, env):
 # }
 # print(ans);
 # """
+# p1 = """
+# var a = fun(x, y){
+#     return x + y;
+# };
+# fun b(x, y){
+#     return x - y;
+# }
+# var x = b(1, 2);
+# print(x);
+# print(a(1, 2));
+# """
 
+# env = {}
 # tokens = cilly_lexer(p1)
+# print("tokens:")
 # print(tokens)
 # ast = cilly_parser(tokens)
+# print("ast:")
 # print(ast)
-# v = cilly_eval(ast)
+# v = cilly_eval(ast, env)

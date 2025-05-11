@@ -1,6 +1,6 @@
 import sys
-from cilly_interpreter import cilly_eval, cilly_lexer, cilly_parser
 import turtle
+from cilly_interpreter import cilly_eval, cilly_lexer, cilly_parser
 
 env = {
     "forward": lambda *args: turtle.forward(*args),
