@@ -31,45 +31,57 @@ very simple stack machine
 #     PRINT,
 # ]
 
-
 class Stack:
     def __init__(self):
         self.stack = []
-
+        self.push_count = 0 #记录 push 次数
+        self.pop_count = 0  #记录 pop 次数
+        self.current_depth = 0 #记录当前栈的深度
+        self.max_depth = 0   #记录栈的最大深度
+        
     def push(self, v):
         self.stack.append(v)
-
+        self.push_count += 1
+        self.current_depth += 1
+        if self.current_depth > self.max_depth:
+            self.max_depth = self.current_depth
+        
     def pop(self):
+        if self.empty():
+            raise RuntimeError("Stack underflow")
+        self.pop_count += 1
+        self.current_depth -= 1
         return self.stack.pop()
-
+    
     def top(self):
         return self.stack[-1]
-
+    
     def empty(self):
         return len(self.stack) == 0
-
-
+   
+  
 # def simple_stack_vm(code):
-
+    
 #     pc = 0
-
+    
 #     def err(msg):
-#         error("simple stack machine", msg)
-
+#         error('simple stack machine', msg)
+        
 #     stack = Stack()
-
+    
 #     def push(v):
 #         return stack.push(v)
-
+    
 #     def pop():
 #         return stack.pop()
-
+    
+    
 #     while pc < len(code):
-
+        
 #         opcode = code[pc]
-
+        
 #         if opcode == PUSH:
-#             v = code[pc + 1]
+#             v = code[pc+1]
 #             push(v)
 #             pc = pc + 2
 #         elif opcode == PRINT:
@@ -97,14 +109,13 @@ class Stack:
 #             push(v1 / v2)
 #             pc = pc + 1
 #         else:
-#             err(f"非法opcode: {opcode}")
+#             err(f'非法opcode: {opcode}')
 
-
-"""
+'''
 cilly vm: stack machine
-"""
+'''
 
-LOAD_CONST = 1      # 后需跟一个参数表示该常量在consts的索引
+LOAD_CONST = 1
 
 LOAD_NULL = 2
 LOAD_TRUE = 3
@@ -407,28 +418,33 @@ def cilly_vm(code, consts, scopes):
         BINARY_EQ: binary_op,
         BINARY_NE: binary_op,
         BINARY_LT: binary_op,
-        BINARY_GE: binary_op,
+        BINARY_GE: binary_op,      
     }
-
+    
     def get_opcode_proc(opcode):
         if opcode not in ops:
-            err(f"非法opcode: {opcode}")
-
+            err(f'非法opcode: {opcode}')
+            
         return ops[opcode]
-
+    
     def run():
         pc = 0
-
+        
         while pc < len(code):
             opcode = code[pc]
-
+            
             proc = get_opcode_proc(opcode)
-
+            
             pc = proc(pc)
-
+                            
     run()
-
-
+    # 输出栈统计信息
+    print("\n--- Stack Statistics ---")
+    print(f"Push count: {stack.push_count}")
+    print(f"Pop count: {stack.pop_count}")
+    print(f"Max stack depth: {stack.max_depth}")
+    print(f"Final stack depth: {stack.current_depth}")
+           
 consts = [
     mk_num(3),
     mk_num(5),
@@ -442,17 +458,15 @@ vars = [
 # 3 + 5 * 6
 
 p1 = [
-    LOAD_CONST,
-    0,
-    LOAD_CONST,
-    1,
-    LOAD_CONST,
-    2,
+    LOAD_CONST, 0,
+    LOAD_CONST, 1,
+    LOAD_CONST, 2,
     BINARY_MUL,
     BINARY_ADD,
     PRINT_ITEM,
     PRINT_NEWLINE,
 ]
+
 # cilly_vm(p1, consts, vars)
 # c = a + b * 5
 
@@ -485,6 +499,7 @@ while (i <= 100){
 
 print(sum);
 """
+
 consts = [
     mk_num(0),
     mk_num(1),
@@ -497,118 +512,121 @@ vars = [
 
 p1 = [
     # i = 1
-    LOAD_CONST,
-    1,
-    STORE_VAR,
-    0,
+    LOAD_CONST, 1,
+    STORE_VAR, 0,
+    
     # sum = 0
-    LOAD_CONST,
-    0,
-    STORE_VAR,
-    1,
+    LOAD_CONST, 0,
+    STORE_VAR, 1,
+    
     # while ( i <= 100 ) {
-    LOAD_CONST,
-    2,
-    LOAD_VAR,
-    0,
+    LOAD_CONST, 2,
+    LOAD_VAR, 0,
     BINARY_LT,
-    JMP_TRUE,
-    31,  # i > 100退出while循环
-    # sum = sum + i
-    LOAD_VAR,
-    1,
-    LOAD_VAR,
-    0,
+    
+    JMP_TRUE, 31, #i > 100退出while循环
+    
+    #sum = sum + i
+    LOAD_VAR, 1,
+    LOAD_VAR, 0,
     BINARY_ADD,
-    STORE_VAR,
-    1,
-    # i = i + 1
-    LOAD_VAR,
-    0,
-    LOAD_CONST,
-    1,
+    STORE_VAR, 1,
+    
+    #i = i + 1
+    LOAD_VAR, 0,
+    LOAD_CONST, 1,
     BINARY_ADD,
-    STORE_VAR,
-    0,
-    JMP,
-    8,
-    # }
+    STORE_VAR, 0,
+    
+    JMP, 8,
+    #}
+    
     # print sum
-    LOAD_VAR,
-    1,
+    LOAD_VAR, 1,
     PRINT_ITEM,
     PRINT_NEWLINE,
+    
 ]
-
-# cilly_vm(p1, consts, vars)
-
+#cilly_vm(p1, consts, vars)
 
 def sum100():
     i = 1
     sum = 0
     while i <= 100:
         sum = sum + i
-        i = i + 1
-
+        i = i + 1        
     print(sum)
-
-
-"""
+        
+'''
 cilly vm反汇编器
-"""
-
+'''
 
 def cilly_vm_dis(code, consts, var_names):
-
+    
     def err(msg):
-        error("cilly vm disassembler", msg)
-
+        error('cilly vm disassembler', msg)
+        
     pc = 0
-
+    
     while pc < len(code):
         opcode = code[pc]
-
+        
         if opcode == LOAD_CONST:
             index = code[pc + 1]
             v = consts[index]
-
-            print(f"{pc}\t LOAD_CONST {index} ({v})")
-
+            
+            print(f'{pc}\t LOAD_CONST {index} ({v})')
+            
             pc = pc + 2
+        elif opcode == LOAD_VAR:
+            scope_i = code[pc + 1]
+            index = code[pc + 2]
+            v = var_names[(scope_i, index, 'L')]
+
+            print(f'{pc}\t LOAD_VAR {scope_i} {index} ({v})')
+            pc = pc + 3
+        
+        elif opcode == STORE_VAR:
+            scope_i = code[pc + 1]
+            index = code[pc + 2]
+            v = var_names[(scope_i, index, 'S')]
+
+            print(f'{pc}\t STORE_VAR {scope_i} {index} ({v})')
+            pc = pc + 3
+
         elif opcode in OPS_NAME:
             name, size = OPS_NAME[opcode]
-
-            print(f"{pc}\t {name}", end="")
-
+            
+            print(f'{pc}\t {name}', end='')
+            
             if size > 1:
-                print(f" {code[pc+1]}", end="")
+                print(f' {code[pc+1]}', end='')
                 if size > 2:
-                    print(f" {code[pc+2]}", end="")
-
-            print("")
+                    print(f' {code[pc+2]}', end='')
+                    
+            print('')
             pc = pc + size
         else:
-            err(f"非法opcode:{opcode}")
+            err(f'非法opcode:{opcode}')
+        
+# vars_name = [
+#     'i',
+#     'sum',
+# ]
 
+vars_name = {}
 
-vars_name = [
-    "i",
-    "sum",
-]
+#cilly_vm_dis(p1, consts, vars_name)
 
-# cilly_vm_dis(p1, consts, vars_name)
-
-"""
+'''
 Cilly vm compiler
-"""
+'''
 
-
-# code 里面装的是字节码
 def cilly_vm_compiler(ast, code, consts, scopes):
-
+    
     def err(msg):
-        error("cilly vm compiler", msg)
-
+        error('cilly vm compiler', msg)
+    
     def add_const(c):
         for i in range(len(consts)):
             if consts[i] == c:
@@ -787,7 +805,6 @@ def cilly_vm_compiler(ast, code, consts, scopes):
         addr1 = emit(JMP_FALSE, -1)
 
         visit(true_s)
-
         if false_s == None:
             backpatch(addr1, get_next_emit_addr())
         else:
@@ -832,6 +849,7 @@ def cilly_vm_compiler(ast, code, consts, scopes):
         visit(e)
 
         emit(STORE_VAR, 0, index)
+        vars_name[(0, index, 'S')] = name
 
     def compile_assign(node):
         _, name, e = node
@@ -841,12 +859,14 @@ def cilly_vm_compiler(ast, code, consts, scopes):
 
         scope_i, index = lookup_var(val(name))
         emit(STORE_VAR, scope_i, index)
+        vars_name[(scope_i, index, 'S')] = val(name)
 
     def compile_id(node):
         _, name = node
 
         scope_i, index = lookup_var(name)
         emit(LOAD_VAR, scope_i, index)
+        vars_name[(scope_i, index, 'L')] = name
 
     def compile_fun(node):
         _, params, body = node
@@ -891,15 +911,44 @@ def cilly_vm_compiler(ast, code, consts, scopes):
             visit(a)
 
         emit(CALL, len(args))
+    
+    while_stack = Stack()
+    def compile_while(node):
+        _, cond, body = node
+        loop_start = get_next_emit_addr()
+        while_stack.push((loop_start, [], get_current_scopes_depth()))
+        visit(cond)
+        false_addr = emit(JMP_FALSE, -1) #判断循环条件，当条件为false时跳转到循环结束位置，当前位置未知，暂定-1，以后回填
+        visit(body)
+        emit(JMP, loop_start) #循环代码执行完毕，跳转到循环开始，再进行条件判定
+        loop_over = get_next_emit_addr() #整个循环体逻辑执行完毕，记录循环结束的opcode位置
+        _, breaklist, _ = while_stack.pop()
+        for b in breaklist:             #回填代码中出现的所有break
+            backpatch(b, loop_over)   
+        backpatch(false_addr, loop_over) #回填false条件的addr
+    
+   def compile_break(node):   #如果出现break语句，跳转到当前循环结束，但是结束位置未知
+        _, breaklist, saved_depth = while_stack.top()
+        for i in range(0, get_current_scopes_depth() - saved_depth):
+            emit(LEAVE_SCOPE)    #注意要在跳转之前退出作用域，否则本指令将被JMP忽略掉
+        break_addr = emit(JMP, -1)
+        breaklist.append(break_addr) #在当前循环暂存break_addr，当循环其它代码转换为opcode后回填
+        
+    
+   def compile_continue(node): #如果出现continue语句，直接跳转到当前循环开始
+        loop_start, _ , saved_depth = while_stack.top()
+        for i in range(0, get_current_scopes_depth() - saved_depth):
+            emit(LEAVE_SCOPE)
+        emit(JMP, loop_start)
 
     visitors = {
         "program": compile_program,
         "expr_stat": compile_expr_stat,
         "print": compile_print,
         "if": compile_if,
-        #         'while': compile_while,
-        #         'break': compile_break,
-        #         'continue': compile_continue,
+        'while': compile_while,
+        'break': compile_break,
+        'continue': compile_continue,
         #
         "define": compile_define,
         "assign": compile_assign,
@@ -934,7 +983,6 @@ def cilly_vm_compiler(ast, code, consts, scopes):
         v(node)
 
     visit(ast)
-
     return code, consts, scopes
 
 
@@ -971,6 +1019,51 @@ var i = 2;
 #     print(42);
 # """
 
+# p1 = '''
+# var i = 0;
+# while(i < 5)
+# {
+#     print(i);
+#     i = i + 1;
+# }
+
+# p1 = '''
+# var i = 0;
+# while(i < 5)
+# {
+#    if (i == 3)
+#    {
+#       print("执行break，终端循环");
+#       break;
+#    }
+#    print(i);
+#    i = i + 1;
+# }
+
+# p1 = '''
+# var i = 5;
+# var x = 3;
+# while(i > 0)
+# {
+#    while(x > 0)
+#    {
+#       if (x == 2)
+#       {
+#          print("此时x = 2, 执行break，退出循环");
+#          break;
+#       }
+#       print(x);
+#       x = x - 1;
+#    }
+#    i = i - 1;
+#    if (i == 4)
+#    {
+#       print("执行continue,不输出4");
+#       continue;
+#    }
+#    print(i);
+# }
+
 p1 = """
 var add = fun(a, b){
   return a + b;
@@ -1000,6 +1093,7 @@ var even = fun(n) {
 print(add(1,2));
 print(even(3), odd(3));
 """
+
 ts = cilly_lexer(p1)
 ast = cilly_parser(ts)
 print(ast)
@@ -1008,3 +1102,5 @@ print(code)
 print(consts)
 cilly_vm_dis(code, consts, ["i"])
 cilly_vm(code, consts, scopes)
+        
+
