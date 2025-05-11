@@ -957,7 +957,33 @@ pstr = '''
 print(123,"hello", "world", true);
 '''
 
-pWhile = '''
+
+
+
+pWhile1 = '''
+var i = 0;
+while(i < 5)
+{
+    print(i);
+    i = i + 1;
+}
+
+'''
+pWhile2 = '''
+var i = 0;
+while(i < 5)
+{
+   if (i == 3)
+   {
+      print("执行break，终端循环");
+      break;
+   }
+   print(i);
+   i = i + 1;
+}
+
+'''
+pWhile3 = '''
 var i = 5;
 var x = 3;
 while(i > 0)
@@ -982,10 +1008,9 @@ while(i > 0)
 }
 
 '''
-ts = cilly_lexer(pDef)
+ts = cilly_lexer(pWhile3)
 ast = cilly_parser(ts)
-print(ast)
 code, consts, scopes = cilly_vm_compiler(ast, [], [], [])
 cilly_vm(code, consts, scopes)
-cilly_vm_dis(code, consts, vars_name)
+#cilly_vm_dis(code, consts, vars_name)
 
