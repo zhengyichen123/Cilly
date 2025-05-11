@@ -972,6 +972,9 @@ var i = 2;
 # """
 
 p1 = """
+var add = fun(a, b){
+  return a + b;
+};
 var odd = fun(n){
   if(n == 0)
     return false;
@@ -994,7 +997,7 @@ var even = fun(n) {
     };
     print(x(1, 2), y(1, 2));
 }
-
+print(add(1,2));
 print(even(3), odd(3));
 """
 ts = cilly_lexer(p1)
