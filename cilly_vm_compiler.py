@@ -638,6 +638,9 @@ def cilly_vm_compiler(ast, code, consts, scopes):
     def get_next_emit_addr():
         return len(code)
 
+    def get_current_scopes_depth():
+        return len(scopes)
+
     def emit(opcode, operand1=None, operand2=None):
 
         addr = get_next_emit_addr()  # 获取当前code长度作为地址
@@ -927,19 +930,19 @@ def cilly_vm_compiler(ast, code, consts, scopes):
             backpatch(b, loop_over)   
         backpatch(false_addr, loop_over) #回填false条件的addr
     
-   def compile_break(node):   #如果出现break语句，跳转到当前循环结束，但是结束位置未知
-        _, breaklist, saved_depth = while_stack.top()
-        for i in range(0, get_current_scopes_depth() - saved_depth):
-            emit(LEAVE_SCOPE)    #注意要在跳转之前退出作用域，否则本指令将被JMP忽略掉
-        break_addr = emit(JMP, -1)
-        breaklist.append(break_addr) #在当前循环暂存break_addr，当循环其它代码转换为opcode后回填
+    def compile_break(node):   #如果出现break语句，跳转到当前循环结束，但是结束位置未知
+            _, breaklist, saved_depth = while_stack.top()
+            for i in range(0, get_current_scopes_depth() - saved_depth):
+                emit(LEAVE_SCOPE)    #注意要在跳转之前退出作用域，否则本指令将被JMP忽略掉
+            break_addr = emit(JMP, -1)
+            breaklist.append(break_addr) #在当前循环暂存break_addr，当循环其它代码转换为opcode后回填
         
     
-   def compile_continue(node): #如果出现continue语句，直接跳转到当前循环开始
-        loop_start, _ , saved_depth = while_stack.top()
-        for i in range(0, get_current_scopes_depth() - saved_depth):
-            emit(LEAVE_SCOPE)
-        emit(JMP, loop_start)
+    def compile_continue(node): #如果出现continue语句，直接跳转到当前循环开始
+            loop_start, _ , saved_depth = while_stack.top()
+            for i in range(0, get_current_scopes_depth() - saved_depth):
+                emit(LEAVE_SCOPE)
+            emit(JMP, loop_start)
 
     visitors = {
         "program": compile_program,
@@ -1040,59 +1043,60 @@ var i = 2;
 #    i = i + 1;
 # }
 
-# p1 = '''
-# var i = 5;
-# var x = 3;
-# while(i > 0)
-# {
-#    while(x > 0)
-#    {
-#       if (x == 2)
-#       {
-#          print("此时x = 2, 执行break，退出循环");
-#          break;
-#       }
-#       print(x);
-#       x = x - 1;
-#    }
-#    i = i - 1;
-#    if (i == 4)
-#    {
-#       print("执行continue,不输出4");
-#       continue;
-#    }
-#    print(i);
-# }
-
 p1 = """
-var add = fun(a, b){
-  return a + b;
-};
-var odd = fun(n){
-  if(n == 0)
-    return false;
-  else
-   return even(n-1);
-};
-var even = fun(n) {
- if(n==0)
-   return true;
- else
-   return odd(n-1);
-};
+var i = 5;
+var x = 3;
+while(i > 0)
 {
-    print(even(3), odd(3));
-    var x = fun(a, b){
-        return a + b;
-    };
-    var y = fun(a, b){
-        return a * b;
-    };
-    print(x(1, 2), y(1, 2));
+   while(x > 0)
+   {
+      if (x == 2)
+      {
+         print("此时x = 2, 执行break，退出循环");
+         break;
+      }
+      print(x);
+      x = x - 1;
+   }
+   i = i - 1;
+   if (i == 4)
+   {
+      print("执行continue,不输出4");
+      continue;
+   }
+   print(i);
 }
-print(add(1,2));
-print(even(3), odd(3));
 """
+
+# p1 = """
+# var add = fun(a, b){
+#   return a + b;
+# };
+# var odd = fun(n){
+#   if(n == 0)
+#     return false;
+#   else
+#    return even(n-1);
+# };
+# var even = fun(n) {
+#  if(n==0)
+#    return true;
+#  else
+#    return odd(n-1);
+# };
+# {
+#     print(even(3), odd(3));
+#     var x = fun(a, b){
+#         return a + b;
+#     };
+#     var y = fun(a, b){
+#         return a * b;
+#     };
+#     print(x(1, 2), y(1, 2));
+# }
+# print(add(1,2));
+# print(even(3), odd(3));
+# """
 
 ts = cilly_lexer(p1)
 ast = cilly_parser(ts)
@@ -1100,7 +1104,7 @@ print(ast)
 code, consts, scopes = cilly_vm_compiler(ast, [], [], [])
 print(code)
 print(consts)
-cilly_vm_dis(code, consts, ["i"])
+cilly_vm_dis(code, consts, vars_name)
 cilly_vm(code, consts, scopes)
         
 
