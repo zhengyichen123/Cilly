@@ -1043,60 +1043,60 @@ var i = 2;
 #    i = i + 1;
 # }
 
-p1 = """
-var i = 5;
-var x = 3;
-while(i > 0)
-{
-   while(x > 0)
-   {
-      if (x == 2)
-      {
-         print("此时x = 2, 执行break，退出循环");
-         break;
-      }
-      print(x);
-      x = x - 1;
-   }
-   i = i - 1;
-   if (i == 4)
-   {
-      print("执行continue,不输出4");
-      continue;
-   }
-   print(i);
-}
-"""
-
 # p1 = """
-# var add = fun(a, b){
-#   return a + b;
-# };
-# var odd = fun(n){
-#   if(n == 0)
-#     return false;
-#   else
-#    return even(n-1);
-# };
-# var even = fun(n) {
-#  if(n==0)
-#    return true;
-#  else
-#    return odd(n-1);
-# };
+# var i = 5;
+# var x = 3;
+# while(i > 0)
 # {
-#     print(even(3), odd(3));
-#     var x = fun(a, b){
-#         return a + b;
-#     };
-#     var y = fun(a, b){
-#         return a * b;
-#     };
-#     print(x(1, 2), y(1, 2));
+#    while(x > 0)
+#    {
+#       if (x == 2)
+#       {
+#          print("此时x = 2, 执行break，退出循环");
+#          break;
+#       }
+#       print(x);
+#       x = x - 1;
+#    }
+#    i = i - 1;
+#    if (i == 4)
+#    {
+#       print("执行continue,不输出4");
+#       continue;
+#    }
+#    print(i);
 # }
-# print(add(1,2));
-# print(even(3), odd(3));
 # """
+
+p1 = """
+var add = fun(a, b){
+  return a + b;
+};
+var odd = fun(n){
+  if(n == 0)
+    return false;
+  else
+   return even(n-1);
+};
+var even = fun(n) {
+ if(n==0)
+   return true;
+ else
+   return odd(n-1);
+};
+{
+    print(even(3), odd(3));
+    var x = fun(a, b){
+        return a + b;
+    };
+    var y = fun(a, b){
+        return a * b;
+    };
+    print(x(1, 2), y(1, 2));
+}
+print(add(1,2));
+print(even(3), odd(3));
+"""
 
 ts = cilly_lexer(p1)
 ast = cilly_parser(ts)
