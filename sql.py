@@ -581,28 +581,25 @@ class Executor:
             result = []
             for row in self.tables[table_name]["data"]:
                 if condition is None or self.eval_condition(condition, row):
-                    if fields == ["*"]:
-                        selected = row
-                    else:
-                        selected = {field: row.get(field) for field in fields}
-                    result.append(selected)
+                    result.append(row)
+
             if sort is not None:
                 field = sort[0]
                 sort_way = sort[1]
                 result = sorted(
                     result, key=lambda x: x.get(field), reverse=(sort_way == "DESC")
                 )
+
             if offset is not None and offset < 0:
                 raise ValueError("偏移量不能为负数")
             if limit is not None and limit <= 0:
                 raise ValueError("限制数必须大于0")
 
+            all = False
             if limit is None:
                 all = True
-            else:
-                all = False
-            if offset is None:
-                offset = 0
+            
+            final_result = []
 
             if not all:
                 if offset + limit < len(result):
@@ -614,6 +611,10 @@ class Executor:
                     final_result = result[offset:]
                 else:
                     raise ValueError("请求范围超过结果范围")
+            
+            final_result = [
+                {field: row[field] for field in fields} for row in final_result
+            ]
 
             print(
                 f"查询 `{table_name}` 的结果(从第{offset}条开始显示{len(final_result)}条记录，共{len(result)}条): {final_result}"
@@ -714,10 +715,10 @@ if __name__ == "__main__":
     INSERT INTO users VALUES (id = 5, name = 'Eve');
     INSERT INTO users VALUES (id = 6, name = 'Frank');
     UPDATE users set name = 'Alice' where id >= 1 and name == 'Bob';
-    SELECT name from users where id >= 2 and id <= 5 ORDERBY id DESC LIMIT 2 OFFSET 2;
+    SELECT name from users where id >= 2 and id <= 5 ORDERBY id DESC LIMIT 2 OFFSET 1;
     SELECT name from users  ORDERBY id LIMIT 2 OFFSET 2;
-    SELECT name from users where id >= 2 and id <= 5 LIMIT 2 OFFSET 2;
-    SELECT name from users where id >= 2 and id <= 5 OFFSET 2;
+    SELECT name from users where id >= 2 and id <= 5 LIMIT 2 OFFSET 1;
+    SELECT name from users where id >= 2 and id <= 5 OFFSET 1;
     """
     sql_commands = """
     update users set name = 'Alice' where id >= 1 and name == 'Bob';
