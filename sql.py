@@ -466,6 +466,27 @@ class Executor:
                 row[field] = self.eval_expr(value[1])  # 计算表达式的值
             self.tables[table_name]["data"].append(row)
             print(f"插入到 `{table_name}`: {row}")
+
+        elif stmt_type == "update":
+            table_name = stmt[1]
+            updates = stmt[2]
+            condition = stmt[3]
+            
+            if table_name not in self.tables:
+                print(f"表 `{table_name}` 不存在")
+            
+            update_count = 0
+
+            for row in self.tables[table_name]["data"]:
+                if condition is None or self.eval_condition(condition, row):
+                    for field, expr in updates:
+                        row[field] = self.eval_expr(expr)
+                    update_count += 1
+            
+            print(f"更新了{table_name}的{update_count}行")
+
+        
+        
         elif stmt_type == "delete":
             table_name = stmt[1]
             condition = stmt[2]
@@ -497,6 +518,8 @@ class Executor:
                     result.append(selected)
             print(f"查询 `{table_name}` 的结果: {result}")
             return result
+        
+            
 
     def eval_expr(self, expr):
         """评估表达式，支持数字运算和字符串操作"""
@@ -558,10 +581,10 @@ class Executor:
             elif op == "!=":
                 return left_val != right_val
         
-            elif op == "AND":
+            elif op == "and":
                 return self.eval_condition(left, row) and self.eval_condition(right, row)
             
-            elif op == "OR":
+            elif op == "or":
                 return self.eval_condition(left, row) or self.eval_condition(right, row)
 
         return False
@@ -586,17 +609,17 @@ if __name__ == "__main__":
     INSERT INTO users VALUES (id = (1 + 1) * 3, name = 'Alice');
     INSERT INTO users VALUES (id = 2, name = 'Bob');
     SELECT * FROM users;
-    DELETE FROM users WHERE id == 2;
-    SELECT id, name FROM users WHERE id == 4;
+    UPDATE users set name = 'Alice' where id >= 1 and name == 'Bob';
+    SELECT * FROM users;
     """
     sql_commands = """
     update users set name = 'Alice' where id >= 1 and name == 'Bob';
     """
-    lexer = Lexer(sql_commands)
+    lexer = Lexer(sql1)
     tokens = lexer.tokenize()
     print(f"token :  \n{tokens}")
     parser = Parser(tokens)
     ast = parser.parse_program()
     print(f"ast : \n{ast}")
     executor = Executor()
-    # result = executor.run(ast)
+    result = executor.run(ast)
