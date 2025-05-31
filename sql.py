@@ -485,8 +485,6 @@ class Executor:
             
             print(f"更新了{table_name}的{update_count}行")
 
-        
-        
         elif stmt_type == "delete":
             table_name = stmt[1]
             condition = stmt[2]
@@ -501,10 +499,15 @@ class Executor:
                 ]
                 deleted_count = len(original_data) - len(self.tables[table_name]["data"])
                 print(f"从 `{table_name}` 删除 {deleted_count} 行")
+
+
         elif stmt_type == "select":
             table_name = stmt[1]
             fields = stmt[2]
             condition = stmt[3]
+            sort = stmt[4]
+            limit = stmt[5]
+            offset = stmt[6]
             if table_name not in self.tables:
                 print(f"表 `{table_name}` 不存在")
                 return []
@@ -516,7 +519,38 @@ class Executor:
                     else:
                         selected = {field: row.get(field) for field in fields}
                     result.append(selected)
-            print(f"查询 `{table_name}` 的结果: {result}")
+            if sort is not None:
+                field = sort[0]
+                sort_way = sort[1]
+                result = sorted(
+                    result,
+                    key = lambda x: x.get(field),
+                    reverse = (sort_way == 'DESC')
+                )
+            if offset is not None and offset < 0:
+                raise ValueError("偏移量不能为负数")
+            if limit is not None and limit <= 0:
+                raise ValueError("限制数必须大于0")
+            
+            if limit is None:
+                all = True
+            else:
+                all = False
+            if offset is None:
+                offset = 0
+            
+            if not all:
+                if offset + limit < len(result):
+                    final_result = result[offset : offset + limit]
+                else:
+                    raise ValueError("请求范围超过结果范围")
+            else:
+                if offset < len(result):
+                    final_result = result[offset:]
+                else:
+                    raise ValueError("请求范围超过结果范围")
+            
+            print(f"查询 `{table_name}` 的结果(从第{offset}条开始显示{len(final_result)}条记录，共{len(result)}条): {final_result}")
             return result
         
             
