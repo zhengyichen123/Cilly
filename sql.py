@@ -45,6 +45,8 @@ class Lexer:
         "UNION": "UNION",
         "DISTINCT": "DISTINCT",
         "ORDERBY": "ORDERBY",
+        "DEC" : "DEC",
+        "ASC" : "ASC",
         "GROUPBY": "GROUPBY",
         "HAVING": "HAVING",
         "LIMIT": "LIMIT",
@@ -55,7 +57,6 @@ class Lexer:
         "LEFT": "LEFT",
         "RIGHT": "RIGHT",
         "ON": "ON",
-        "USING": "USING",
         # 内置函数
         "AVG": "AVG",
         "SUM": "SUM",
@@ -342,26 +343,84 @@ class Parser:
         2. SELECT * FROM users WHERE age > 18 AND status == 'active';
         3. SELECT * FROM users u JOIN orders o ON u.id == o.user_id;
         4. SELECT * FROM users ORDER BY id DESC LIMIT 10 OFFSET 5;
+
+        SELECT [DISTINCT] select_list
+        FROM table_source
+        [WHERE row_filter]
+        [GROUP BY grouping_condition]
+        [HAVING group_filter]
+        [ORDER BY sort_expression]
+        [LIMIT limit_count]
+        [OFFSET offset_count];
         """
         self.expect(["SELECT"])
         fields = []
-        while self.peek().type != "FROM":
-            fields.append(self.expect(["ID", "MUL"]).value)
+        while self.peek() and self.peek().type != "FROM":
+            fields.append(self.expect(["ID", "DOT", "MUL"]).value)
             if self.peek() and self.peek().type == "COMMA":
                 self.advance()
 
         self.expect(["FROM"])
-
         table_name = self.expect(["ID"]).value
 
-        condition = None
+        Joins = None
+        while self.peek() and self.peek().type == "JOIN":
+            self.advance()
+            table = self.expect(["ID"]).value
+            self.expect(["ON"])
+            cond = self.parse_expr()
+            Joins.append([table, cond])
 
+        condition = None
         if self.peek() and self.peek().type == "WHERE":
             self.advance()
             condition = self.parse_expr()
 
+        Groups = None
+        if self.peek() and self.peek().type == "GROUPBY":
+            self.advance()
+            depend = None
+            while self.peek() and self.peek().type == "ID":
+                Groups.append(self.expect(["ID"]).value)
+                if self.peek() and self.peek().type == "COMMA":
+                    self.advance()
+
+            if depend is None:
+                self.expect(["ID"])
+
+            cond = None
+            if self.peek() and self.peek().type == "HAVING":
+                self.advance()
+                cond = self.parse_expr()
+
+            Groups.append(depend)
+            Groups.append(cond)
+
+        if self.peek() and self.peek().type == "ORDERBY":
+            self.advance()
+            id = self.expect(["ID"]).value
+            if self.peek() and self.peek().type == "DEC":
+                self.advance()
+                sort = [id, "DEC"]
+            else:
+                sort = [id, "ASC"]
+
+        limit = None
+        if self.peek() and self.peek().type == "LIMIT":
+            self.advance()
+            limit = self.expect(["INT"]).value
+
+        if self.peek() and self.peek().type == "OFFSET":
+            self.advance()
+            offset = self.expect(["INT"]).value
+        else:
+            offset = 0
+
         self.expect(["SEMICOLON"])
-        return ["select", table_name, fields, condition]
+        sort = [id, "ASC"]
+        limit = 10
+        offset = 0
+        return ["select", table_name, fields, condition, sort, limit, offset]
 
     def parse_update(self):
 
@@ -383,7 +442,7 @@ class Parser:
         if self.peek() and self.peek().type == "WHERE":
             self.advance()
             condition = self.parse_expr()
-        
+
         self.expect(["SEMICOLON"])
         return ["update", table_name, fields, condition]
 
