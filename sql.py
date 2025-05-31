@@ -10,6 +10,7 @@ import re
 7. 多表和嵌套表达式
 """
 
+
 class Token:
     def __init__(self, type, value):
         self.type = type
@@ -39,12 +40,14 @@ class Lexer:
         "WHERE": "WHERE",
         "SELECT": "SELECT",
         "UPDATE": "UPDATE",
-        "SET" : "SET",
+        "SET": "SET",
         "DEFAULT": "DEFAULT",
         "ALL": "ALL",
         "UNION": "UNION",
         "DISTINCT": "DISTINCT",
         "ORDERBY": "ORDERBY",
+        "DESC": "DESC",
+        "ASC": "ASC",
         "GROUPBY": "GROUPBY",
         "HAVING": "HAVING",
         "LIMIT": "LIMIT",
@@ -55,7 +58,6 @@ class Lexer:
         "LEFT": "LEFT",
         "RIGHT": "RIGHT",
         "ON": "ON",
-        "USING": "USING",
         # 内置函数
         "AVG": "AVG",
         "SUM": "SUM",
@@ -78,8 +80,8 @@ class Lexer:
 
     TOKEN_SPEC = [
         ("ID", r"[A-Za-z_][A-Za-z0-9_]*"),  # 标识符
-        ("FLOAT", r"\d+\.(\d*)?"), # 浮点数
-        ("INT", r"\d+"), # 整数
+        ("FLOAT", r"\d+\.(\d*)?"),  # 浮点数
+        ("INT", r"\d+"),  # 整数
         ("STRING", r"'[^']*'"),  # 字符串
         ("DOT", r"\."),  # 点 .
         # 条件运算符
@@ -112,9 +114,9 @@ class Lexer:
                 match = pattern.match(self.text, self.pos)
                 if match:
                     val = match.group(0)
-                    if token_type == 'FLOAT':
+                    if token_type == "FLOAT":
                         val = float(val)
-                    if token_type == 'INT':
+                    if token_type == "INT":
                         val = int(val)
 
                     if token_type == "WS":
@@ -342,35 +344,94 @@ class Parser:
         2. SELECT * FROM users WHERE age > 18 AND status == 'active';
         3. SELECT * FROM users u JOIN orders o ON u.id == o.user_id;
         4. SELECT * FROM users ORDER BY id DESC LIMIT 10 OFFSET 5;
+
+        SELECT [DISTINCT] select_list
+        FROM table_source
+        [WHERE row_filter]
+        [GROUP BY grouping_condition]
+        [HAVING group_filter]
+        [ORDER BY sort_expression]
+        [LIMIT limit_count]
+        [OFFSET offset_count];
         """
         self.expect(["SELECT"])
         fields = []
-        while self.peek().type != "FROM":
-            fields.append(self.expect(["ID", "MUL"]).value)
+        while self.peek() and self.peek().type != "FROM":
+            fields.append(self.expect(["ID", "DOT", "MUL"]).value)
             if self.peek() and self.peek().type == "COMMA":
                 self.advance()
 
         self.expect(["FROM"])
-
         table_name = self.expect(["ID"]).value
 
-        condition = None
+        Joins = None
+        while self.peek() and self.peek().type == "JOIN":
+            self.advance()
+            table = self.expect(["ID"]).value
+            self.expect(["ON"])
+            cond = self.parse_expr()
+            Joins.append([table, cond])
 
+        condition = None
         if self.peek() and self.peek().type == "WHERE":
             self.advance()
             condition = self.parse_expr()
 
+        Groups = None
+        if self.peek() and self.peek().type == "GROUPBY":
+            self.advance()
+            depend = None
+            while self.peek() and self.peek().type == "ID":
+                Groups.append(self.expect(["ID"]).value)
+                if self.peek() and self.peek().type == "COMMA":
+                    self.advance()
+
+            if depend is None:
+                self.expect(["ID"])
+
+            cond = None
+            if self.peek() and self.peek().type == "HAVING":
+                self.advance()
+                cond = self.parse_expr()
+
+            Groups.append(depend)
+            Groups.append(cond)
+
+        sort = None
+        if self.peek() and self.peek().type == "ORDERBY":
+            self.advance()
+            id = self.expect(["ID"]).value
+            if self.peek() and self.peek().type == "DESC":
+                self.advance()
+                sort = [id, "DESC"]
+            else:
+                sort = [id, "ASC"]
+
+        limit = None
+        if self.peek() and self.peek().type == "LIMIT":
+            self.advance()
+            limit = self.expect(["INT"]).value
+
+        offset = 0
+        if self.peek() and self.peek().type == "OFFSET":
+            self.advance()
+            offset = self.expect(["INT"]).value
+
         self.expect(["SEMICOLON"])
-        return ["select", table_name, fields, condition]
+        return ["select", table_name, fields, condition, sort, limit, offset]
 
     def parse_update(self):
 
         self.expect(["UPDATE"])
-        table_name = self.expect(["ID"])
+        table_name = self.expect(["ID"]).value
         self.expect(["SET"])
 
         fields = []
-        while self.peek() and self.peek().type != "WHERE" and self.peek().type != "SEMICOLON":
+        while (
+            self.peek()
+            and self.peek().type != "WHERE"
+            and self.peek().type != "SEMICOLON"
+        ):
             field = []
             field.append(self.expect(["ID"]).value)
             self.expect(["ASSIGN"])
@@ -383,7 +444,7 @@ class Parser:
         if self.peek() and self.peek().type == "WHERE":
             self.advance()
             condition = self.parse_expr()
-        
+
         self.expect(["SEMICOLON"])
         return ["update", table_name, fields, condition]
 
@@ -436,8 +497,11 @@ class Executor:
         if stmt_type == "create":
             table_name = stmt[1]
             columns = stmt[2]
-            self.tables[table_name] = {"columns": {col[0]: col[1] for col in columns}, "data": []}
-            '''
+            self.tables[table_name] = {
+                "columns": {col[0]: col[1] for col in columns},
+                "data": [],
+            }
+            """
             本数据库结构
             self.tables = {
 
@@ -455,17 +519,36 @@ class Executor:
 
                 #(other tables)
             } 
-            '''
+            """
             print(f"表 `{table_name}` 创建成功，列: {columns}")
         elif stmt_type == "insert":
             table_name = stmt[1]
-            fields = stmt[2] # 操作域
+            fields = stmt[2]  # 操作域
             values = stmt[3]
             row = {}
             for field, value in zip(fields, values):
                 row[field] = self.eval_expr(value[1])  # 计算表达式的值
             self.tables[table_name]["data"].append(row)
             print(f"插入到 `{table_name}`: {row}")
+
+        elif stmt_type == "update":
+            table_name = stmt[1]
+            updates = stmt[2]
+            condition = stmt[3]
+
+            if table_name not in self.tables:
+                print(f"表 `{table_name}` 不存在")
+
+            update_count = 0
+
+            for row in self.tables[table_name]["data"]:
+                if condition is None or self.eval_condition(condition, row):
+                    for field, expr in updates:
+                        row[field] = self.eval_expr(expr)
+                    update_count += 1
+
+            print(f"更新了{table_name}的{update_count}行")
+
         elif stmt_type == "delete":
             table_name = stmt[1]
             condition = stmt[2]
@@ -476,32 +559,72 @@ class Executor:
             else:
                 original_data = self.tables[table_name]["data"]
                 self.tables[table_name]["data"] = [
-                    row for row in original_data if not self.eval_condition(condition, row)
+                    row
+                    for row in original_data
+                    if not self.eval_condition(condition, row)
                 ]
-                deleted_count = len(original_data) - len(self.tables[table_name]["data"])
+                deleted_count = len(original_data) - len(
+                    self.tables[table_name]["data"]
+                )
                 print(f"从 `{table_name}` 删除 {deleted_count} 行")
+
         elif stmt_type == "select":
             table_name = stmt[1]
             fields = stmt[2]
             condition = stmt[3]
+            sort = stmt[4]
+            limit = stmt[5]
+            offset = stmt[6]
             if table_name not in self.tables:
                 print(f"表 `{table_name}` 不存在")
                 return []
             result = []
             for row in self.tables[table_name]["data"]:
                 if condition is None or self.eval_condition(condition, row):
-                    if fields == ['*']:
-                        selected = row
-                    else:
-                        selected = {field: row.get(field) for field in fields}
-                    result.append(selected)
-            print(f"查询 `{table_name}` 的结果: {result}")
+                    result.append(row)
+
+            if sort is not None:
+                field = sort[0]
+                sort_way = sort[1]
+                result = sorted(
+                    result, key=lambda x: x.get(field), reverse=(sort_way == "DESC")
+                )
+
+            if offset is not None and offset < 0:
+                raise ValueError("偏移量不能为负数")
+            if limit is not None and limit <= 0:
+                raise ValueError("限制数必须大于0")
+
+            all = False
+            if limit is None:
+                all = True
+            
+            final_result = []
+
+            if not all:
+                if offset + limit < len(result):
+                    final_result = result[offset : offset + limit]
+                else:
+                    raise ValueError("请求范围超过结果范围")
+            else:
+                if offset < len(result):
+                    final_result = result[offset:]
+                else:
+                    raise ValueError("请求范围超过结果范围")
+            
+            final_result = [
+                {field: row[field] for field in fields} for row in final_result
+            ]
+
+            print(
+                f"查询 `{table_name}` 的结果(从第{offset}条开始显示{len(final_result)}条记录，共{len(result)}条): {final_result}"
+            )
             return result
 
     def eval_expr(self, expr):
         """评估表达式，支持数字运算和字符串操作"""
         if expr[0] == "INT":
-            return expr[1]  
+            return expr[1]
         elif expr[0] == "FLOAT":
             return expr[1]
         elif expr[0] == "STRING":
@@ -515,14 +638,14 @@ class Executor:
             right = self.eval_expr(expr[3])
             op = expr[1]
             if op == "+":
-                return left + right 
-            
+                return left + right
+
             elif op == "-":
                 return left - right
 
-            elif op == "*": 
-                return left * right  # 数字相乘   
-            
+            elif op == "*":
+                return left * right  # 数字相乘
+
             elif op == "/":
                 if isinstance(left, int) and isinstance(right, int):
                     if right == 0:
@@ -530,7 +653,7 @@ class Executor:
                     else:
                         return left / right
                 else:
-                    raise TypeError(f"不支持的 / 运算: {type(left)} 和 {type(right)}")            
+                    raise TypeError(f"不支持的 / 运算: {type(left)} 和 {type(right)}")
 
         return None
 
@@ -557,11 +680,13 @@ class Executor:
                 return left_val <= right_val
             elif op == "!=":
                 return left_val != right_val
-        
-            elif op == "AND":
-                return self.eval_condition(left, row) and self.eval_condition(right, row)
-            
-            elif op == "OR":
+
+            elif op == "and":
+                return self.eval_condition(left, row) and self.eval_condition(
+                    right, row
+                )
+
+            elif op == "or":
                 return self.eval_condition(left, row) or self.eval_condition(right, row)
 
         return False
@@ -585,18 +710,24 @@ if __name__ == "__main__":
     CREATE TABLE users(id INT, name String);
     INSERT INTO users VALUES (id = (1 + 1) * 3, name = 'Alice');
     INSERT INTO users VALUES (id = 2, name = 'Bob');
-    SELECT * FROM users;
-    DELETE FROM users WHERE id == 2;
-    SELECT id, name FROM users WHERE id == 4;
+    INSERT INTO users VALUES (id = 3, name = 'Charlie');
+    INSERT INTO users VALUES (id = 4, name = 'David');
+    INSERT INTO users VALUES (id = 5, name = 'Eve');
+    INSERT INTO users VALUES (id = 6, name = 'Frank');
+    UPDATE users set name = 'Alice' where id >= 1 and name == 'Bob';
+    SELECT name from users where id >= 2 and id <= 5 ORDERBY id DESC LIMIT 2 OFFSET 1;
+    SELECT name from users  ORDERBY id LIMIT 2 OFFSET 2;
+    SELECT name from users where id >= 2 and id <= 5 LIMIT 2 OFFSET 1;
+    SELECT name from users where id >= 2 and id <= 5 OFFSET 1;
     """
     sql_commands = """
     update users set name = 'Alice' where id >= 1 and name == 'Bob';
     """
-    lexer = Lexer(sql_commands)
+    lexer = Lexer(sql1)
     tokens = lexer.tokenize()
     print(f"token :  \n{tokens}")
     parser = Parser(tokens)
     ast = parser.parse_program()
     print(f"ast : \n{ast}")
     executor = Executor()
-    # result = executor.run(ast)
+    result = executor.run(ast)
