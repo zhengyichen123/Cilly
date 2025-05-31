@@ -10,6 +10,7 @@ import re
 7. 多表和嵌套表达式
 """
 
+
 class Token:
     def __init__(self, type, value):
         self.type = type
@@ -39,14 +40,14 @@ class Lexer:
         "WHERE": "WHERE",
         "SELECT": "SELECT",
         "UPDATE": "UPDATE",
-        "SET" : "SET",
+        "SET": "SET",
         "DEFAULT": "DEFAULT",
         "ALL": "ALL",
         "UNION": "UNION",
         "DISTINCT": "DISTINCT",
         "ORDERBY": "ORDERBY",
-        "DEC" : "DEC",
-        "ASC" : "ASC",
+        "DESC": "DESC",
+        "ASC": "ASC",
         "GROUPBY": "GROUPBY",
         "HAVING": "HAVING",
         "LIMIT": "LIMIT",
@@ -79,8 +80,8 @@ class Lexer:
 
     TOKEN_SPEC = [
         ("ID", r"[A-Za-z_][A-Za-z0-9_]*"),  # 标识符
-        ("FLOAT", r"\d+\.(\d*)?"), # 浮点数
-        ("INT", r"\d+"), # 整数
+        ("FLOAT", r"\d+\.(\d*)?"),  # 浮点数
+        ("INT", r"\d+"),  # 整数
         ("STRING", r"'[^']*'"),  # 字符串
         ("DOT", r"\."),  # 点 .
         # 条件运算符
@@ -113,9 +114,9 @@ class Lexer:
                 match = pattern.match(self.text, self.pos)
                 if match:
                     val = match.group(0)
-                    if token_type == 'FLOAT':
+                    if token_type == "FLOAT":
                         val = float(val)
-                    if token_type == 'INT':
+                    if token_type == "INT":
                         val = int(val)
 
                     if token_type == "WS":
@@ -396,12 +397,13 @@ class Parser:
             Groups.append(depend)
             Groups.append(cond)
 
+        sort = None
         if self.peek() and self.peek().type == "ORDERBY":
             self.advance()
             id = self.expect(["ID"]).value
-            if self.peek() and self.peek().type == "DEC":
+            if self.peek() and self.peek().type == "DESC":
                 self.advance()
-                sort = [id, "DEC"]
+                sort = [id, "DESC"]
             else:
                 sort = [id, "ASC"]
 
@@ -410,16 +412,12 @@ class Parser:
             self.advance()
             limit = self.expect(["INT"]).value
 
+        offset = 0
         if self.peek() and self.peek().type == "OFFSET":
             self.advance()
             offset = self.expect(["INT"]).value
-        else:
-            offset = 0
 
         self.expect(["SEMICOLON"])
-        sort = [id, "ASC"]
-        limit = 10
-        offset = 0
         return ["select", table_name, fields, condition, sort, limit, offset]
 
     def parse_update(self):
@@ -429,7 +427,11 @@ class Parser:
         self.expect(["SET"])
 
         fields = []
-        while self.peek() and self.peek().type != "WHERE" and self.peek().type != "SEMICOLON":
+        while (
+            self.peek()
+            and self.peek().type != "WHERE"
+            and self.peek().type != "SEMICOLON"
+        ):
             field = []
             field.append(self.expect(["ID"]).value)
             self.expect(["ASSIGN"])
@@ -495,8 +497,11 @@ class Executor:
         if stmt_type == "create":
             table_name = stmt[1]
             columns = stmt[2]
-            self.tables[table_name] = {"columns": {col[0]: col[1] for col in columns}, "data": []}
-            '''
+            self.tables[table_name] = {
+                "columns": {col[0]: col[1] for col in columns},
+                "data": [],
+            }
+            """
             本数据库结构
             self.tables = {
 
@@ -514,11 +519,11 @@ class Executor:
 
                 #(other tables)
             } 
-            '''
+            """
             print(f"表 `{table_name}` 创建成功，列: {columns}")
         elif stmt_type == "insert":
             table_name = stmt[1]
-            fields = stmt[2] # 操作域
+            fields = stmt[2]  # 操作域
             values = stmt[3]
             row = {}
             for field, value in zip(fields, values):
@@ -530,10 +535,10 @@ class Executor:
             table_name = stmt[1]
             updates = stmt[2]
             condition = stmt[3]
-            
+
             if table_name not in self.tables:
                 print(f"表 `{table_name}` 不存在")
-            
+
             update_count = 0
 
             for row in self.tables[table_name]["data"]:
@@ -541,7 +546,7 @@ class Executor:
                     for field, expr in updates:
                         row[field] = self.eval_expr(expr)
                     update_count += 1
-            
+
             print(f"更新了{table_name}的{update_count}行")
 
         elif stmt_type == "delete":
@@ -554,11 +559,14 @@ class Executor:
             else:
                 original_data = self.tables[table_name]["data"]
                 self.tables[table_name]["data"] = [
-                    row for row in original_data if not self.eval_condition(condition, row)
+                    row
+                    for row in original_data
+                    if not self.eval_condition(condition, row)
                 ]
-                deleted_count = len(original_data) - len(self.tables[table_name]["data"])
+                deleted_count = len(original_data) - len(
+                    self.tables[table_name]["data"]
+                )
                 print(f"从 `{table_name}` 删除 {deleted_count} 行")
-
 
         elif stmt_type == "select":
             table_name = stmt[1]
@@ -573,7 +581,7 @@ class Executor:
             result = []
             for row in self.tables[table_name]["data"]:
                 if condition is None or self.eval_condition(condition, row):
-                    if fields == ['*']:
+                    if fields == ["*"]:
                         selected = row
                     else:
                         selected = {field: row.get(field) for field in fields}
@@ -582,22 +590,20 @@ class Executor:
                 field = sort[0]
                 sort_way = sort[1]
                 result = sorted(
-                    result,
-                    key = lambda x: x.get(field),
-                    reverse = (sort_way == 'DESC')
+                    result, key=lambda x: x.get(field), reverse=(sort_way == "DESC")
                 )
             if offset is not None and offset < 0:
                 raise ValueError("偏移量不能为负数")
             if limit is not None and limit <= 0:
                 raise ValueError("限制数必须大于0")
-            
+
             if limit is None:
                 all = True
             else:
                 all = False
             if offset is None:
                 offset = 0
-            
+
             if not all:
                 if offset + limit < len(result):
                     final_result = result[offset : offset + limit]
@@ -608,16 +614,16 @@ class Executor:
                     final_result = result[offset:]
                 else:
                     raise ValueError("请求范围超过结果范围")
-            
-            print(f"查询 `{table_name}` 的结果(从第{offset}条开始显示{len(final_result)}条记录，共{len(result)}条): {final_result}")
+
+            print(
+                f"查询 `{table_name}` 的结果(从第{offset}条开始显示{len(final_result)}条记录，共{len(result)}条): {final_result}"
+            )
             return result
-        
-            
 
     def eval_expr(self, expr):
         """评估表达式，支持数字运算和字符串操作"""
         if expr[0] == "INT":
-            return expr[1]  
+            return expr[1]
         elif expr[0] == "FLOAT":
             return expr[1]
         elif expr[0] == "STRING":
@@ -631,14 +637,14 @@ class Executor:
             right = self.eval_expr(expr[3])
             op = expr[1]
             if op == "+":
-                return left + right 
-            
+                return left + right
+
             elif op == "-":
                 return left - right
 
-            elif op == "*": 
-                return left * right  # 数字相乘   
-            
+            elif op == "*":
+                return left * right  # 数字相乘
+
             elif op == "/":
                 if isinstance(left, int) and isinstance(right, int):
                     if right == 0:
@@ -646,7 +652,7 @@ class Executor:
                     else:
                         return left / right
                 else:
-                    raise TypeError(f"不支持的 / 运算: {type(left)} 和 {type(right)}")            
+                    raise TypeError(f"不支持的 / 运算: {type(left)} 和 {type(right)}")
 
         return None
 
@@ -673,10 +679,12 @@ class Executor:
                 return left_val <= right_val
             elif op == "!=":
                 return left_val != right_val
-        
+
             elif op == "and":
-                return self.eval_condition(left, row) and self.eval_condition(right, row)
-            
+                return self.eval_condition(left, row) and self.eval_condition(
+                    right, row
+                )
+
             elif op == "or":
                 return self.eval_condition(left, row) or self.eval_condition(right, row)
 
@@ -701,9 +709,15 @@ if __name__ == "__main__":
     CREATE TABLE users(id INT, name String);
     INSERT INTO users VALUES (id = (1 + 1) * 3, name = 'Alice');
     INSERT INTO users VALUES (id = 2, name = 'Bob');
-    SELECT * FROM users;
+    INSERT INTO users VALUES (id = 3, name = 'Charlie');
+    INSERT INTO users VALUES (id = 4, name = 'David');
+    INSERT INTO users VALUES (id = 5, name = 'Eve');
+    INSERT INTO users VALUES (id = 6, name = 'Frank');
     UPDATE users set name = 'Alice' where id >= 1 and name == 'Bob';
-    SELECT * FROM users;
+    SELECT name from users where id >= 2 and id <= 5 ORDERBY id DESC LIMIT 2 OFFSET 2;
+    SELECT name from users  ORDERBY id LIMIT 2 OFFSET 2;
+    SELECT name from users where id >= 2 and id <= 5 LIMIT 2 OFFSET 2;
+    SELECT name from users where id >= 2 and id <= 5 OFFSET 2;
     """
     sql_commands = """
     update users set name = 'Alice' where id >= 1 and name == 'Bob';
