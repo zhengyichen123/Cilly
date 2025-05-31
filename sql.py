@@ -366,7 +366,7 @@ class Parser:
     def parse_update(self):
 
         self.expect(["UPDATE"])
-        table_name = self.expect(["ID"])
+        table_name = self.expect(["ID"]).value
         self.expect(["SET"])
 
         fields = []
