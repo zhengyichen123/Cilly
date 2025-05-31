@@ -1,5 +1,15 @@
 import re
 
+"""
+1. 子查询
+2. JOIN查询 INNER JOIN, LEFT JOIN, RIGHT JOIN
+3. 聚合函数 COUNT() SUM() AVG() MAX() MIN()
+4. ORDER BY / LIMIT / OFFSET /GROUP BY
+5. UPDATE, ALTER语句
+6. 自定义函数与函数调用
+7. 多表和嵌套表达式
+"""
+
 
 class Token:
     def __init__(self, type, value):
@@ -8,6 +18,7 @@ class Token:
 
     def get(self):
         return [self.type, self.value]
+
     def __repr__(self):
         return f"[{self.type}, {self.value}]"
 
@@ -22,27 +33,53 @@ class Lexer:
         "TABLE": "TABLE",
         "INSERT": "INSERT",
         "INTO": "INTO",
+        "VALUE": "VALUE",
         "VALUES": "VALUES",
         "DELETE": "DELETE",
         "FROM": "FROM",
         "WHERE": "WHERE",
         "SELECT": "SELECT",
+        "UPDATE": "UPDATE",
+        "DEFAULT": "DEFAULT",
+        "ALL": "ALL",
+        "UNION": "UNION",
+        "DISTINCT": "DISTINCT",
+        "ORDERBY": "ORDERBY",
+        "GROUPBY": "GROUPBY",
+        "HAVING": "HAVING",
+        "LIMIT": "LIMIT",
+        "OFFSET": "OFFSET",
+        "AS": "AS",
+        "INNER": "INNER",
+        "JOIN": "JOIN",
+        "LEFT": "LEFT",
+        "RIGHT": "RIGHT",
+        "ON": "ON",
+        "USING": "USING",
+        # 内置函数
+        "AVG": "AVG",
+        "SUM": "SUM",
+        "COUNT": "COUNT",
+        "MAX": "MAX",
+        "MIN": "MIN",
         # 基本数据类型
         "INT": "DTYPE",
         "STRING": "DTYPE",
         "FLOAT": "DTYPE",
-        "BOOL": "DTYPE",
+        "BOOLEAN": "DTYPE",
         # 逻辑运算符
         "AND": "AND",
         "OR": "OR",
         "NOT": "NOT",
         "TRUE": "TRUE",
         "FALSE": "FALSE",
+        "UNKNOWN": "UNKNOWN",
     }
 
     TOKEN_SPEC = [
         ("ID", r"[A-Za-z_][A-Za-z0-9_]*"),  # 标识符
-        ("NUMBER", r"\d+"),  # 整数
+        ("FLOAT", r"\d+(\.\d*)?"),  # 浮点数
+        ("INT", r"\d+"),  # 整数
         ("STRING", r"'[^']*'"),  # 字符串
         ("DOT", r"\."),  # 点 .
         # 条件运算符
@@ -94,8 +131,9 @@ class Lexer:
 
 
 class Parser:
-    def __init__(self, tokens):
+    def __init__(self, tokens: list):
         self.tokens = tokens
+        self.pred_anal_table = {}
         self.curpos = 0
         self.prevpos = 0
 
@@ -113,7 +151,7 @@ class Parser:
     def backroll(self):
         self.curpos = self.prevpos
 
-    def expect(self, token_type):
+    def expect(self, token_type: list):
         token = self.peek()
         if token and token.type in token_type:
             self.advance()
@@ -121,18 +159,18 @@ class Parser:
         else:
             raise SyntaxError(f"Parser: 期望 {token_type}, 得到 {token}")
 
-    def literal(self, bp):
+    def literal(self, bp: int):
         token = self.peek()
         self.advance()
         return token.get()
 
-    def unary(self, bp):
+    def unary(self, bp: int):
         op = self.peek().value
         self.advance()
         expr = self.parse_expr(bp)
         return ["unary", op, expr]
 
-    def parens(self, bp = 0):
+    def parens(self, bp=0):
         self.expect("LPAREN")
         expr = self.parse_expr()
         self.expect("RPAREN")
@@ -140,7 +178,8 @@ class Parser:
 
     op1 = {
         "ID": (100, literal),
-        "NUMBER": (100, literal),
+        "FLOAT": (100, literal),
+        "INT": (100, literal),
         "STRING": (100, literal),
         "TRUE": (100, literal),
         "FALSE": (100, literal),
@@ -149,12 +188,12 @@ class Parser:
         "LPAREN": (100, parens),
     }
 
-    def get_op1_parser(self, t):
+    def get_op1_parser(self, t: str):
         if t not in self.op1:
             raise SyntaxError(f"Parser: 错误token {t}")
         return self.op1[t]
 
-    def binary(self, left, bp):
+    def binary(self, left, bp: int):
         op = self.peek().value
         self.advance()
         right = self.parse_expr(bp)
@@ -175,7 +214,7 @@ class Parser:
         "OR": (30, 31, binary),
     }
 
-    def get_op2_parser(self, t):
+    def get_op2_parser(self, t: str):
         if t not in self.op2:
             return (0, 0, None)
         else:
@@ -183,7 +222,7 @@ class Parser:
 
     # 解析表达式：主要是条件判断，数字运算和字符串拼接
     # 末尾自动跳到下一个token
-    def parse_expr(self, bp = 0):
+    def parse_expr(self, bp=0):
         r_bp, parser = self.get_op1_parser(self.peek().type)
         left = parser(self, r_bp)
 
@@ -317,7 +356,7 @@ class Parser:
             condition = self.parse_expr()
 
         self.expect(["SEMICOLON"])
-        return["select", table_name, fields, condition]
+        return ["select", table_name, fields, condition]
 
     def parse_statement(self):
         token = self.peek()
@@ -341,6 +380,14 @@ class Parser:
 
 
 class Executor:
+    """
+    ["program", statements]
+    ["create", table_name, fields]
+    ["insert", table_name, fields, values]
+    ["select", table_name, fields, condition]
+    ["delete", table_name, condition]
+    """
+
     def __init__(self):
         self.tables = {}
 
@@ -408,15 +455,23 @@ DELETE FROM users WHERE id == 1;
 SELECT id, name FROM users WHERE id == 1;
 """
 
-sql_commands = """
-SELECT * FROM users WHERE age > 18 AND status == 'active';
-"""
+if __name__ == "__main__":
 
-lexer = Lexer(sql_commands)
-tokens = lexer.tokenize()
-print(f"token :  \n{tokens}")
-parser = Parser(tokens)
-ast = parser.parse_program()
-print(f"ast : \n{ast}")
+    sql_commands = """
+    CREATE TABLE employees(id INT, name STRING, age INT, salary FLOAT);
+    INSERT INTO employees VALUES (id = 1, name = 'Alice', age = 30, salary = 50000.0);
+    INSERT INTO employees VALUES (id = 2, name = 'Bob', age = 25, salary = 45000.0);
+    INSERT INTO employees VALUES (id = 3 + 2, name = 'Charlie', age = 35, salary = 60000);
+    SELECT * FROM employees;
+    SELECT name, age FROM employees WHERE age < 28;
+    DELETE FROM employees WHERE id == 2;
+    SELECT * FROM employees;
+    """
+    lexer = Lexer(sql_commands)
+    tokens = lexer.tokenize()
+    print(f"token :  \n{tokens}")
+    parser = Parser(tokens)
+    ast = parser.parse_program()
+    print(f"ast : \n{ast}")
 
-executor = Executor()
+    executor = Executor()
