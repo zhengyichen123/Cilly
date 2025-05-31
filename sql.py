@@ -10,7 +10,6 @@ import re
 7. 多表和嵌套表达式
 """
 
-
 class Token:
     def __init__(self, type, value):
         self.type = type
@@ -40,6 +39,7 @@ class Lexer:
         "WHERE": "WHERE",
         "SELECT": "SELECT",
         "UPDATE": "UPDATE",
+        "SET" : "SET",
         "DEFAULT": "DEFAULT",
         "ALL": "ALL",
         "UNION": "UNION",
@@ -78,8 +78,8 @@ class Lexer:
 
     TOKEN_SPEC = [
         ("ID", r"[A-Za-z_][A-Za-z0-9_]*"),  # 标识符
-        ("FLOAT", r"\d+(\.\d*)?"),  # 浮点数
-        ("INT", r"\d+"),  # 整数
+        ("FLOAT", r"\d+\.(\d*)?"), # 浮点数
+        ("INT", r"\d+"), # 整数
         ("STRING", r"'[^']*'"),  # 字符串
         ("DOT", r"\."),  # 点 .
         # 条件运算符
@@ -112,6 +112,11 @@ class Lexer:
                 match = pattern.match(self.text, self.pos)
                 if match:
                     val = match.group(0)
+                    if token_type == 'FLOAT':
+                        val = float(val)
+                    if token_type == 'INT':
+                        val = int(val)
+
                     if token_type == "WS":
                         self.pos = match.end()
                         break
@@ -358,6 +363,30 @@ class Parser:
         self.expect(["SEMICOLON"])
         return ["select", table_name, fields, condition]
 
+    def parse_update(self):
+
+        self.expect(["UPDATE"])
+        table_name = self.expect(["ID"])
+        self.expect(["SET"])
+
+        fields = []
+        while self.peek() and self.peek().type != "WHERE" and self.peek().type != "SEMICOLON":
+            field = []
+            field.append(self.expect(["ID"]).value)
+            self.expect(["ASSIGN"])
+            field.append(self.parse_expr())
+            fields.append(field)
+            if self.peek() and self.peek().type == "COMMA":
+                self.advance()
+
+        condition = None
+        if self.peek() and self.peek().type == "WHERE":
+            self.advance()
+            condition = self.parse_expr()
+        
+        self.expect(["SEMICOLON"])
+        return ["update", table_name, fields, condition]
+
     def parse_statement(self):
         token = self.peek()
         if token.type == "INSERT":
@@ -368,6 +397,8 @@ class Parser:
             return self.parse_create()
         elif token.type == "SELECT":
             return self.parse_select()
+        elif token.type == "UPDATE":
+            return self.parse_update()
         else:
             raise SyntaxError(f"非法token: {token}")
 
@@ -392,51 +423,152 @@ class Executor:
         self.tables = {}
 
     def execute(self, ast):
-        if ast["type"] == "create":
-            table_name = ast["table"]
-            if table_name not in self.tables:
-                self.tables[table_name] = []
-            print(f"Table `{table_name}` created.")
+        """执行 AST 的入口函数"""
+        if ast[0] == "program":
+            for stmt in ast[1]:
+                self.execute_stmt(stmt)
+        else:
+            self.execute_stmt(ast)
 
-        elif ast["type"] == "insert":
-            table_name = ast["table"]
-            if table_name not in self.tables:
-                self.tables[table_name] = []
-            self.tables[table_name].append(ast["values"])
-            print(f"Inserted into `{table_name}`:", ast["values"])
+    def execute_stmt(self, stmt):
+        """执行单个语句"""
+        stmt_type = stmt[0]
+        if stmt_type == "create":
+            table_name = stmt[1]
+            columns = stmt[2]
+            self.tables[table_name] = {"columns": {col[0]: col[1] for col in columns}, "data": []}
+            '''
+            本数据库结构
+            self.tables = {
 
-        elif ast["type"] == "delete":
-            table_name = ast["table"]
-            condition = ast.get("condition")
-            if not condition:
-                count = len(self.tables[table_name])
-                self.tables[table_name] = []
-                print(f"Cleared {count} rows from `{table_name}`")
+                # user table
+                "user": {
+                    "columns": {
+                        "id": "int"
+                        "name":"string"
+                    }
+                    "data":[
+                        {}
+                        {}
+                    ]
+                }
+
+                #(other tables)
+            } 
+            '''
+            print(f"表 `{table_name}` 创建成功，列: {columns}")
+        elif stmt_type == "insert":
+            table_name = stmt[1]
+            fields = stmt[2] # 操作域
+            values = stmt[3]
+            row = {}
+            for field, value in zip(fields, values):
+                row[field] = self.eval_expr(value[1])  # 计算表达式的值
+            self.tables[table_name]["data"].append(row)
+            print(f"插入到 `{table_name}`: {row}")
+        elif stmt_type == "delete":
+            table_name = stmt[1]
+            condition = stmt[2]
+            if condition is None:
+                count = len(self.tables[table_name]["data"])
+                self.tables[table_name]["data"] = []
+                print(f"清空 `{table_name}` 的 {count} 行")
             else:
-                key = condition["left"]
-                val = condition["right"]
-                original_len = len(self.tables[table_name])
-                self.tables[table_name] = [
-                    row for row in self.tables[table_name] if row.get(key) != val
+                original_data = self.tables[table_name]["data"]
+                self.tables[table_name]["data"] = [
+                    row for row in original_data if not self.eval_condition(condition, row)
                 ]
-                deleted_count = original_len - len(self.tables[table_name])
-                print(
-                    f"Deleted {deleted_count} rows from `{table_name}` where {key}={val}"
-                )
-
-        elif ast["type"] == "select":
-            table_name = ast["table"]
+                deleted_count = len(original_data) - len(self.tables[table_name]["data"])
+                print(f"从 `{table_name}` 删除 {deleted_count} 行")
+        elif stmt_type == "select":
+            table_name = stmt[1]
+            fields = stmt[2]
+            condition = stmt[3]
             if table_name not in self.tables:
-                print(f"Table `{table_name}` does not exist.")
+                print(f"表 `{table_name}` 不存在")
                 return []
             result = []
-            condition = ast.get("condition")
-            for row in self.tables[table_name]:
-                if not condition or (row.get(condition["left"]) == condition["right"]):
-                    selected = {field: row[field] for field in ast["fields"]}
+            for row in self.tables[table_name]["data"]:
+                if condition is None or self.eval_condition(condition, row):
+                    if fields == ['*']:
+                        selected = row
+                    else:
+                        selected = {field: row.get(field) for field in fields}
                     result.append(selected)
-            print(f"Query result from `{table_name}`:", result)
+            print(f"查询 `{table_name}` 的结果: {result}")
             return result
+
+    def eval_expr(self, expr):
+        """评估表达式，支持数字运算和字符串操作"""
+        if expr[0] == "INT":
+            return expr[1]  
+        elif expr[0] == "FLOAT":
+            return expr[1]
+        elif expr[0] == "STRING":
+            return expr[1]  # 字符串直接返回
+        elif expr[0] in ["TRUE", "FALSE"]:
+            return expr[0] == "TRUE"  # 布尔值转换
+        elif expr[0] == "ID":
+            return expr[1]  # ID 返回名称，实际值在条件中处理
+        elif expr[0] == "binary":
+            left = self.eval_expr(expr[2])
+            right = self.eval_expr(expr[3])
+            op = expr[1]
+            if op == "+":
+                return left + right 
+            
+            elif op == "-":
+                return left - right
+
+            elif op == "*": 
+                return left * right  # 数字相乘   
+            
+            elif op == "/":
+                if isinstance(left, int) and isinstance(right, int):
+                    if right == 0:
+                        raise ZeroDivisionError("除数不能为0！")
+                    else:
+                        return left / right
+                else:
+                    raise TypeError(f"不支持的 / 运算: {type(left)} 和 {type(right)}")            
+
+        return None
+
+    def eval_condition(self, condition, row):
+        """评估条件表达式"""
+        if condition[0] == "binary":
+            op = condition[1]
+            left = condition[2]
+            right = condition[3]
+            if left[0] == "ID":
+                left_val = row.get(left[1])  # 从行中获取字段值
+            else:
+                left_val = self.eval_expr(left)
+            right_val = self.eval_expr(right)
+            if op == "==":
+                return left_val == right_val
+            elif op == ">":
+                return left_val > right_val
+            elif op == "<":
+                return left_val < right_val
+            elif op == ">=":
+                return left_val >= right_val
+            elif op == "<=":
+                return left_val <= right_val
+            elif op == "!=":
+                return left_val != right_val
+        
+            elif op == "AND":
+                return self.eval_condition(left, row) and self.eval_condition(right, row)
+            
+            elif op == "OR":
+                return self.eval_condition(left, row) or self.eval_condition(right, row)
+
+        return False
+
+    def run(self, ast):
+        """运行整个程序"""
+        self.execute(ast)
 
 
 # def run_sql(sql, executor):
@@ -446,26 +578,19 @@ class Executor:
 #     ast = parser.parse()
 #     return executor.execute(ast)
 
-"""
-CREATE TABLE users(id INT, name String);
-INSERT INTO users VALUES (id = 1 + 1 * 3, name = 'Alice');
-INSERT INTO users VALUES (id = 2, name = 'Bob');
-SELECT * FROM users;
-DELETE FROM users WHERE id == 1;
-SELECT id, name FROM users WHERE id == 1;
-"""
 
 if __name__ == "__main__":
 
+    sql1 = """
+    CREATE TABLE users(id INT, name String);
+    INSERT INTO users VALUES (id = (1 + 1) * 3, name = 'Alice');
+    INSERT INTO users VALUES (id = 2, name = 'Bob');
+    SELECT * FROM users;
+    DELETE FROM users WHERE id == 2;
+    SELECT id, name FROM users WHERE id == 4;
+    """
     sql_commands = """
-    CREATE TABLE employees(id INT, name STRING, age INT, salary FLOAT);
-    INSERT INTO employees VALUES (id = 1, name = 'Alice', age = 30, salary = 50000.0);
-    INSERT INTO employees VALUES (id = 2, name = 'Bob', age = 25, salary = 45000.0);
-    INSERT INTO employees VALUES (id = 3 + 2, name = 'Charlie', age = 35, salary = 60000);
-    SELECT * FROM employees;
-    SELECT name, age FROM employees WHERE age < 28;
-    DELETE FROM employees WHERE id == 2;
-    SELECT * FROM employees;
+    update users set name = 'Alice' where id >= 1 and name == 'Bob';
     """
     lexer = Lexer(sql_commands)
     tokens = lexer.tokenize()
@@ -473,5 +598,5 @@ if __name__ == "__main__":
     parser = Parser(tokens)
     ast = parser.parse_program()
     print(f"ast : \n{ast}")
-
     executor = Executor()
+    # result = executor.run(ast)
