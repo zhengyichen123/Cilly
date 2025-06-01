@@ -1,4 +1,5 @@
 import re
+import pandas as pd
 
 """
 1. 子查询
@@ -485,11 +486,15 @@ class Executor:
 
     def execute(self, ast):
         """执行 AST 的入口函数"""
+        results = []
         if ast[0] == "program":
             for stmt in ast[1]:
-                self.execute_stmt(stmt)
+                result = self.execute_stmt(stmt)
+                results.append(result)
         else:
-            self.execute_stmt(ast)
+            result = self.execute_stmt(ast)
+            results.append(result)
+        return results
 
     def execute_stmt(self, stmt):
         """执行单个语句"""
@@ -521,6 +526,7 @@ class Executor:
             } 
             """
             print(f"表 `{table_name}` 创建成功，列: {columns}")
+            return ('create', f"表 `{table_name}` 创建成功，列: {columns}")
         elif stmt_type == "insert":
             table_name = stmt[1]
             fields = stmt[2]  # 操作域
@@ -530,6 +536,7 @@ class Executor:
                 row[field] = self.eval_expr(value[1])  # 计算表达式的值
             self.tables[table_name]["data"].append(row)
             print(f"插入到 `{table_name}`: {row}")
+            return ('insert', f"插入到 `{table_name}`: {row}")
 
         elif stmt_type == "update":
             table_name = stmt[1]
@@ -538,6 +545,7 @@ class Executor:
 
             if table_name not in self.tables:
                 print(f"表 `{table_name}` 不存在")
+                return ('update', f"表 `{table_name}` 不存在")
 
             update_count = 0
 
@@ -548,14 +556,19 @@ class Executor:
                     update_count += 1
 
             print(f"更新了{table_name}的{update_count}行")
+            return ('update', f"更新了 `{table_name}` 的 {update_count} 行")
 
         elif stmt_type == "delete":
             table_name = stmt[1]
             condition = stmt[2]
+            if table_name not in self.tables:
+                print(f"表 `{table_name}` 不存在")
+                return ('delete', f"表 `{table_name}` 不存在")
             if condition is None:
                 count = len(self.tables[table_name]["data"])
                 self.tables[table_name]["data"] = []
                 print(f"清空 `{table_name}` 的 {count} 行")
+                return ('delete', f"清空 `{table_name}` 的 {count} 行")
             else:
                 original_data = self.tables[table_name]["data"]
                 self.tables[table_name]["data"] = [
@@ -567,6 +580,7 @@ class Executor:
                     self.tables[table_name]["data"]
                 )
                 print(f"从 `{table_name}` 删除 {deleted_count} 行")
+                return ('delete', f"从 `{table_name}` 删除 {deleted_count} 行")
 
         elif stmt_type == "select":
             table_name = stmt[1]
@@ -611,15 +625,20 @@ class Executor:
                     final_result = result[offset:]
                 else:
                     raise ValueError("请求范围超过结果范围")
-            
+                
+            selected_fields = []
+            if fields[0] == "*":
+                selected_fields = list(self.tables[table_name]["columns"].keys())
+            else:
+                selected_fields = fields          
             final_result = [
-                {field: row[field] for field in fields} for row in final_result
+                {field: row[field] for field in selected_fields} for row in final_result
             ]
 
             print(
                 f"查询 `{table_name}` 的结果(从第{offset}条开始显示{len(final_result)}条记录，共{len(result)}条): {final_result}"
             )
-            return result
+            return ('select', final_result)
 
     def eval_expr(self, expr):
         """评估表达式，支持数字运算和字符串操作"""
@@ -693,7 +712,7 @@ class Executor:
 
     def run(self, ast):
         """运行整个程序"""
-        self.execute(ast)
+        return self.execute(ast)
 
 
 # def run_sql(sql, executor):
@@ -719,6 +738,7 @@ if __name__ == "__main__":
     SELECT name from users  ORDERBY id LIMIT 2 OFFSET 2;
     SELECT name from users where id >= 2 and id <= 5 LIMIT 2 OFFSET 1;
     SELECT name from users where id >= 2 and id <= 5 OFFSET 1;
+    SELECT * from users;
     """
     sql_commands = """
     update users set name = 'Alice' where id >= 1 and name == 'Bob';
