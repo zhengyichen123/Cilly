@@ -635,7 +635,7 @@ class Executor:
 
             if table_name not in self.tables:
                 print(f"表 `{table_name}` 不存在")
-                return []
+                return ("select", f"表 `{table_name}` 不存在")
 
             join_result = None
 
