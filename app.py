@@ -5,7 +5,6 @@ import pandas as pd
 # 初始化 Executor 并保存在 session_state 中以保持状态
 if "executor" not in st.session_state:
     st.session_state.executor = Executor()
-
 # 初始化 tables_data
 if "tables_data" not in st.session_state:
     st.session_state.tables_data = {}
