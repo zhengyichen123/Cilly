@@ -434,6 +434,7 @@ class Parser:
                 self.advance()
                 sort = [id, "DESC"]
             else:
+                self.advance()
                 sort = [id, "ASC"]
 
         limit = None
@@ -711,7 +712,7 @@ class Executor:
 
             if not all:
                 if offset + limit <= len(result):
-                    final_result = result[offset : offset + limit - 1]
+                    final_result = result[offset : offset + limit] 
                 else:
                     raise ValueError("请求范围超过结果范围")
             else:
@@ -850,53 +851,17 @@ class Executor:
         return self.execute(ast)
 
 
-# def run_sql(sql, executor):
-#     lexer = Lexer(sql)
-#     tokens = lexer.tokenize()
-#     parser = Parser(tokens)
-#     ast = parser.parse()
-#     return executor.execute(ast)
 
-"""
-CrEate table score(id INT, score INT);
-INSERT INTO score VALUES (id = 1, score = 90);
-INSERT INTO score (id, score) VALUES (2, 85);
-INSERT INTO score VALUES (id = 3, score = 80);
-INSERT INTO score VALUES (id = 4, score = 75);
-INSERT INTO score VALUES (id = 5, score = 70);
-INSERT INTO score VALUES (id = 6, score = 65);
-"""
 
 if __name__ == "__main__":
 
     sql1 = """
-        CREATE TABLE users(id INT, name STRING, age INT);
-        CREATE TABLE orders(id INT, user_id INT, product_id INT, amount FLOAT, status STRING);
         CREATE TABLE products(id INT, name STRING, price FLOAT, stock INT);
-        INSERT INTO users VALUES (id = 1, name = 'Ali' + 'ce', age = 25);
-        INSERT INTO users VALUES (id = 2, name = 'Bo' * 2, age = 30);
-        INSERT INTO users VALUES (id = 3, name = 'Charlie', age = 22);
-        INSERT INTO users VALUES (id = 4, name = 'David', age = 23);
-        INSERT INTO orders (id, user_id, product_id, amount, status) VALUES (1, 1, 1, 100.5, 'paid');
-        INSERT INTO orders VALUES (id = 2, user_id = 2, product_id =( 1 + 3 ) * 5 - 17, amount = 200.75, status = 'pending');
-        INSERT INTO orders VALUES (id = 3, user_id = 2 * 1, product_id = 1, amount = 50.0 * 3, status = 'paid');
-        INSERT INTO orders VALUES (id = 4, user_id = 3, product_id = 2, amount = 75.25, status = 'pending');
-        INSERT INTO orders VALUES (id = 5, user_id = 2, product_id = 2, amount = 100, status = 'paid');
-        INSERT INTO orders VALUES (id = 6, user_id = 3, product_id = 3, amount = 25.0 * 3, status = 'paid');
-        INSERT INTO orders VALUES (id = 7, user_id = 1, product_id = 1, amount = 55, status = 'paid');
-        INSERT INTO orders VALUES (id = 8, user_id = 1, product_id = 2, amount = 599, status = 'paid');
-        INSERT INTO orders VALUES (id = 9, user_id = 1, product_id = 3, amount = 895, status = 'paid');
-        INSERT INTO orders VALUES (id = 10, user_id = 3, product_id = 1, amount = 55, status = 'paid');
-        INSERT INTO orders VALUES (id = 11, user_id = 4, product_id = 1, amount = 999, status = 'paid');
-        INSERT INTO orders VALUES (id = 12, user_id = 4, product_id = 2, amount = 699, status = 'paid');
-        INSERT INTO orders VALUES (id = 13, user_id = 4, product_id = 3, amount = 399, status = 'paid');
         INSERT INTO products VALUES (id = 1, name = 'Laptop', price = 999.99, stock = 10);
         INSERT INTO products VALUES (id = 2, name = 'Phone', price = 699.99, stock = 20);
         INSERT INTO products VALUES (id = 3, name = 'Tablet', price = 399.99, stock = 15);
-        select users.name, products.name, orders.status FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id;
-    """
-    sql_commands = """
-    SELECT name course.score from student JOIN course ON student.id == course.id where student.id >= 2 and id <= 5 LIMIT 2 OFFSET 1;
+        SELECT * FROM products orderby price asc limit 2 offset 1;
+
     """
 
     lexer = Lexer(sql1)
