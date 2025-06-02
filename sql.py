@@ -582,6 +582,8 @@ class Executor:
             updates = stmt[2]
             condition = stmt[3]
 
+            self.cur_table = table_name
+            
             if table_name not in self.tables:
                 print(f"表 `{table_name}` 不存在")
                 return ('update', f"表 `{table_name}` 不存在")
@@ -589,7 +591,9 @@ class Executor:
             update_count = 0
 
             for row in self.tables[table_name]["data"]:
-                if condition is None or self.eval_condition(condition, row):
+                if condition is None or self.eval_condition(
+                    condition, {f"{table_name}.{k}": v for k, v in row.items()}
+                ):
                     for field, expr in updates:
                         row[field] = self.eval_expr(expr)
                     update_count += 1
@@ -609,11 +613,16 @@ class Executor:
                 print(f"清空 `{table_name}` 的 {count} 行")
                 return ('delete', f"清空 `{table_name}` 的 {count} 行")
             else:
+
+                self.cur_table = table_name
+
                 original_data = self.tables[table_name]["data"]
                 self.tables[table_name]["data"] = [
                     row
                     for row in original_data
-                    if not self.eval_condition(condition, row)
+                    if not self.eval_condition(
+                        condition, {f"{table_name}.{k}": v for k, v in row.items()}
+                    )
                 ]
                 deleted_count = len(original_data) - len(
                     self.tables[table_name]["data"]
@@ -703,8 +712,8 @@ class Executor:
             final_result = []
 
             if not all:
-                if offset + limit < len(result):
-                    final_result = result[offset : offset + limit]
+                if offset + limit <= len(result):
+                    final_result = result[offset : offset + limit - 1]
                 else:
                     raise ValueError("请求范围超过结果范围")
             else:
@@ -869,7 +878,8 @@ if __name__ == "__main__":
     INSERT INTO score VALUES (id = 5, score = 70);
     INSERT INTO score VALUES (id = 6, score = 65);
     select * from score where score > 80;
-    select name, score.score from users join score on users.id == score.id where users.name == 'Alice';
+    Delete from score where id == 1;
+    select name, score.score from users join score on users.id == score.id where users.name == 'Bob';
     """
     sql_commands = """
     SELECT name course.score from student JOIN course ON student.id == course.id where student.id >= 2 and id <= 5 LIMIT 2 OFFSET 1;
