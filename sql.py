@@ -428,8 +428,8 @@ class Parser:
         if self.peek() and self.peek().type == "ORDERBY":
             self.advance()
             id = self.parse_expr()
-            if id.type == "ID":
-                id = ["field", table_name, id.value]
+            if id[0] == "ID":
+                id = ["field", table_name, id[1]]
 
             if self.peek() and self.peek().type == "DESC":
                 self.advance()
@@ -691,8 +691,7 @@ class Executor:
             if sort is not None:
                 field = sort[0]
                 field = self.eval_expr(field)
-                field = result[0].get(field[1])
-                if field is None:
+                if field[1] not in result[0].keys():
                     raise Exception("排序字段不存在")
 
                 sort_way = sort[1]
@@ -859,6 +858,15 @@ class Executor:
 #     ast = parser.parse()
 #     return executor.execute(ast)
 
+"""
+CrEate table score(id INT, score INT);
+INSERT INTO score VALUES (id = 1, score = 90);
+INSERT INTO score (id, score) VALUES (2, 85);
+INSERT INTO score VALUES (id = 3, score = 80);
+INSERT INTO score VALUES (id = 4, score = 75);
+INSERT INTO score VALUES (id = 5, score = 70);
+INSERT INTO score VALUES (id = 6, score = 65);
+"""
 
 if __name__ == "__main__":
 
@@ -870,16 +878,7 @@ if __name__ == "__main__":
     INSERT INTO users VALUES (id = 4, name = 'David');
     INSERT INTO users VALUES (id = 5, name = 'Eve');
     INSERT INTO users VALUES (id = 6, name = 'Frank');
-    CrEate table score(id INT, score INT);
-    INSERT INTO score VALUES (id = 1, score = 90);
-    INSERT INTO score (id, score) VALUES (2, 85);
-    INSERT INTO score VALUES (id = 3, score = 80);
-    INSERT INTO score VALUES (id = 4, score = 75);
-    INSERT INTO score VALUES (id = 5, score = 70);
-    INSERT INTO score VALUES (id = 6, score = 65);
-    select * from score where score > 80;
-    Delete from score where id == 1;
-    select name, score.score from users join score on users.id == score.id where users.name == 'Bob';
+    SELECT * FROM users ORDERBY id DESC;
     """
     sql_commands = """
     SELECT name course.score from student JOIN course ON student.id == course.id where student.id >= 2 and id <= 5 LIMIT 2 OFFSET 1;
