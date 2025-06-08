@@ -1,4 +1,5 @@
 import re
+import pandas as pd
 
 """
 1. 子查询
@@ -206,7 +207,13 @@ class Parser:
         right = self.parse_expr(bp)
         return ["binary", op, left, right]
 
+    def field_access(self, left, bp=0):
+        self.expect("DOT")
+        right = self.expect(["ID"])
+        return ["field", left[1], right.value]
+
     op2 = {
+        "DOT": (90, 91, field_access),
         "MUL": (80, 81, binary),
         "DIV": (80, 81, binary),
         "PLUS": (70, 71, binary),
@@ -353,36 +360,55 @@ class Parser:
         [ORDER BY sort_expression]
         [LIMIT limit_count]
         [OFFSET offset_count];
+
+        在使用 GROUP BY 分组查询时, SELECT 子句中除了用于分组的字段外，其他字段必须通过 聚合函数（如 MAX, MIN, AVG, COUNT, SUM 等） 来提取数据, HAVING 也如此。
         """
         self.expect(["SELECT"])
         fields = []
         while self.peek() and self.peek().type != "FROM":
-            fields.append(self.expect(["ID", "DOT", "MUL"]).value)
+            table = self.expect(["ID", "MUL"]).value
+            field = None
+            if self.peek() and self.peek().type == "DOT":
+                self.advance()
+                field = self.expect(["ID"]).value
+
+            if field is None:
+                # [table, colomn]
+                fields.append(["field", field, table])
+            else:
+                fields.append(["field", table, field])
+
             if self.peek() and self.peek().type == "COMMA":
                 self.advance()
 
         self.expect(["FROM"])
         table_name = self.expect(["ID"]).value
 
-        Joins = None
+        for field in fields:
+            if field[1] is None:
+                fields[fields.index(field)] = ["field" ,table_name, field[2]]
+           
+
+        joins = []
         while self.peek() and self.peek().type == "JOIN":
             self.advance()
             table = self.expect(["ID"]).value
             self.expect(["ON"])
             cond = self.parse_expr()
-            Joins.append([table, cond])
+            joins.append([table, cond])
 
         condition = None
         if self.peek() and self.peek().type == "WHERE":
             self.advance()
             condition = self.parse_expr()
 
-        Groups = None
+        groups = None
         if self.peek() and self.peek().type == "GROUPBY":
+            groups = []
             self.advance()
             depend = None
             while self.peek() and self.peek().type == "ID":
-                Groups.append(self.expect(["ID"]).value)
+                groups.append(self.expect(["ID"]).value)
                 if self.peek() and self.peek().type == "COMMA":
                     self.advance()
 
@@ -394,17 +420,21 @@ class Parser:
                 self.advance()
                 cond = self.parse_expr()
 
-            Groups.append(depend)
-            Groups.append(cond)
+            groups.append(depend)
+            groups.append(cond)
 
         sort = None
         if self.peek() and self.peek().type == "ORDERBY":
             self.advance()
-            id = self.expect(["ID"]).value
+            id = self.parse_expr()
+            if id[0] == "ID":
+                id = ["field", table_name, id[1]]
+
             if self.peek() and self.peek().type == "DESC":
                 self.advance()
                 sort = [id, "DESC"]
             else:
+                self.advance()
                 sort = [id, "ASC"]
 
         limit = None
@@ -418,7 +448,17 @@ class Parser:
             offset = self.expect(["INT"]).value
 
         self.expect(["SEMICOLON"])
-        return ["select", table_name, fields, condition, sort, limit, offset]
+        return [
+            "select",
+            table_name,
+            fields,
+            joins,
+            condition,
+            groups,
+            sort,
+            limit,
+            offset,
+        ]
 
     def parse_update(self):
 
@@ -482,14 +522,19 @@ class Executor:
 
     def __init__(self):
         self.tables = {}
+        self.cur_table = None
 
     def execute(self, ast):
         """执行 AST 的入口函数"""
+        results = []
         if ast[0] == "program":
             for stmt in ast[1]:
-                self.execute_stmt(stmt)
+                result = self.execute_stmt(stmt)
+                results.append(result)
         else:
-            self.execute_stmt(ast)
+            result = self.execute_stmt(ast)
+            results.append(result)
+        return results
 
     def execute_stmt(self, stmt):
         """执行单个语句"""
@@ -516,11 +561,11 @@ class Executor:
                         {}
                     ]
                 }
-
                 #(other tables)
             } 
             """
             print(f"表 `{table_name}` 创建成功，列: {columns}")
+            return ('create', f"表 `{table_name}` 创建成功，列: {columns}")
         elif stmt_type == "insert":
             table_name = stmt[1]
             fields = stmt[2]  # 操作域
@@ -530,64 +575,128 @@ class Executor:
                 row[field] = self.eval_expr(value[1])  # 计算表达式的值
             self.tables[table_name]["data"].append(row)
             print(f"插入到 `{table_name}`: {row}")
+            return ('insert', f"插入到 `{table_name}`: {row}")
 
         elif stmt_type == "update":
             table_name = stmt[1]
             updates = stmt[2]
             condition = stmt[3]
 
+            self.cur_table = table_name
+            
             if table_name not in self.tables:
                 print(f"表 `{table_name}` 不存在")
+                return ('update', f"表 `{table_name}` 不存在")
 
             update_count = 0
 
             for row in self.tables[table_name]["data"]:
-                if condition is None or self.eval_condition(condition, row):
+                if condition is None or self.eval_condition(
+                    condition, {f"{table_name}.{k}": v for k, v in row.items()}
+                ):
                     for field, expr in updates:
                         row[field] = self.eval_expr(expr)
                     update_count += 1
 
             print(f"更新了{table_name}的{update_count}行")
+            return ('update', f"更新了 `{table_name}` 的 {update_count} 行")
 
         elif stmt_type == "delete":
             table_name = stmt[1]
             condition = stmt[2]
+            if table_name not in self.tables:
+                print(f"表 `{table_name}` 不存在")
+                return ('delete', f"表 `{table_name}` 不存在")
             if condition is None:
                 count = len(self.tables[table_name]["data"])
                 self.tables[table_name]["data"] = []
                 print(f"清空 `{table_name}` 的 {count} 行")
+                return ('delete', f"清空 `{table_name}` 的 {count} 行")
             else:
+
+                self.cur_table = table_name
+
                 original_data = self.tables[table_name]["data"]
                 self.tables[table_name]["data"] = [
                     row
                     for row in original_data
-                    if not self.eval_condition(condition, row)
+                    if not self.eval_condition(
+                        condition, {f"{table_name}.{k}": v for k, v in row.items()}
+                    )
                 ]
                 deleted_count = len(original_data) - len(
                     self.tables[table_name]["data"]
                 )
                 print(f"从 `{table_name}` 删除 {deleted_count} 行")
+                return ('delete', f"从 `{table_name}` 删除 {deleted_count} 行")
 
         elif stmt_type == "select":
-            table_name = stmt[1]
-            fields = stmt[2]
-            condition = stmt[3]
-            sort = stmt[4]
-            limit = stmt[5]
-            offset = stmt[6]
+            table_name = stmt[1] #主表名字
+            fields = stmt[2]  #list[0] = [table, colomn]
+            joins = stmt[3]   
+            condition = stmt[4]  
+            groups = stmt[5]
+            sort = stmt[6]
+            limit = stmt[7]
+            offset = stmt[8]
+
+            self.cur_table = table_name
+
             if table_name not in self.tables:
                 print(f"表 `{table_name}` 不存在")
-                return []
+                return ("select", f"表 `{table_name}` 不存在")
+
+            join_result = None
+
+            if len(joins) > 0:
+                join_result = []
+                main_table = [
+                    {table_name + '.' + key: value for key, value in row.items()}
+                    for row in self.tables[table_name]['data']
+                ]
+                for join in joins:
+                    if join[0] not in self.tables:
+                        print(f"表 `{join[0]}` 不存在")
+                        return []
+                    join_table = [
+                        {join[0] + "." + key: value for key, value in row.items()}
+                        for row in self.tables[join[0]]["data"]
+                    ]
+                    temp = []
+                    for main_data in main_table:
+                        for join_data in join_table:
+                            main_data.update(join_data)
+                            temp.append(main_data.copy())
+
+                    for row in temp:
+                        if join[1] is None or self.eval_condition(join[1], row):
+                            join_result.append(row)
+
+                    main_table = join_result
+                    join_result = [] 
+
+                join_result = main_table           
+
+            if join_result is None:
+                join_result = [
+                    {table_name + "." + key: value for key, value in row.items()}
+                    for row in self.tables[table_name]["data"]
+                ]
+
             result = []
-            for row in self.tables[table_name]["data"]:
+            for row in join_result:
                 if condition is None or self.eval_condition(condition, row):
                     result.append(row)
 
             if sort is not None:
                 field = sort[0]
+                field = self.eval_expr(field)
+                if field[1] not in result[0].keys():
+                    raise Exception("排序字段不存在")
+
                 sort_way = sort[1]
                 result = sorted(
-                    result, key=lambda x: x.get(field), reverse=(sort_way == "DESC")
+                    result, key=lambda x: x.get(field[1]), reverse=(sort_way == "DESC")
                 )
 
             if offset is not None and offset < 0:
@@ -598,12 +707,12 @@ class Executor:
             all = False
             if limit is None:
                 all = True
-            
+
             final_result = []
 
             if not all:
-                if offset + limit < len(result):
-                    final_result = result[offset : offset + limit]
+                if offset + limit <= len(result):
+                    final_result = result[offset : offset + limit] 
                 else:
                     raise ValueError("请求范围超过结果范围")
             else:
@@ -611,15 +720,26 @@ class Executor:
                     final_result = result[offset:]
                 else:
                     raise ValueError("请求范围超过结果范围")
-            
-            final_result = [
-                {field: row[field] for field in fields} for row in final_result
-            ]
+
+            selected_fields = []
+
+            all = False
+            for field in fields:
+                if field[2] == '*':
+                    all = True
+                    break
+
+            if all == False:
+                selected_fields = [self.eval_expr(field)[1] for field in fields]
+                final_result = [
+                    {field: row[field] for field in selected_fields}
+                    for row in final_result
+                ]
 
             print(
                 f"查询 `{table_name}` 的结果(从第{offset}条开始显示{len(final_result)}条记录，共{len(result)}条): {final_result}"
             )
-            return result
+            return ('select', final_result)
 
     def eval_expr(self, expr):
         """评估表达式，支持数字运算和字符串操作"""
@@ -632,19 +752,36 @@ class Executor:
         elif expr[0] in ["TRUE", "FALSE"]:
             return expr[0] == "TRUE"  # 布尔值转换
         elif expr[0] == "ID":
-            return expr[1]  # ID 返回名称，实际值在条件中处理
+            return expr  # ID 返回名称，实际值在条件中处理
+        elif expr[0] == "unary":
+            return -expr[2]
+
+        elif expr[0] == "field":
+            return ["ID", str(expr[1] + '.' + expr[2])] # [table, colomn]
+
         elif expr[0] == "binary":
             left = self.eval_expr(expr[2])
             right = self.eval_expr(expr[3])
             op = expr[1]
             if op == "+":
+                if type(left) != type(right):
+                    raise TypeError(f"不支持的 + 运算: {type(left)} 和 {type(right)}")
+
                 return left + right
 
             elif op == "-":
-                return left - right
+
+                if isinstance(left, int) and isinstance(right, int):
+                    return left - right
+
+                raise TypeError(f"不支持的 - 运算: {type(left)} 和 {type(right)}")
 
             elif op == "*":
-                return left * right  # 数字相乘
+
+                if isinstance(left, str) and isinstance(right, str):
+                    raise TypeError(f"不支持的 * 运算: {type(left)} 和 {type(right)}")
+
+                return left * right  
 
             elif op == "/":
                 if isinstance(left, int) and isinstance(right, int):
@@ -663,11 +800,25 @@ class Executor:
             op = condition[1]
             left = condition[2]
             right = condition[3]
-            if left[0] == "ID":
-                left_val = row.get(left[1])  # 从行中获取字段值
-            else:
-                left_val = self.eval_expr(left)
+
+            left_val = self.eval_expr(left)
+            if isinstance(left_val, list):
+                name = left_val[1]
+                if '.' not in name:
+                    name = f"{self.cur_table}.{name}"
+                left_val = row.get(name)
+                if left_val is None:
+                    raise ValueError(f"找不到{name} 字段")
+
             right_val = self.eval_expr(right)
+            if isinstance(right_val, list):
+                name = right_val[1]
+                if "." not in name:
+                    name = f"{self.cur_table}.{name}"
+                right_val = row.get(name)
+                if right_val is None:
+                    raise ValueError(f"找不到{name} 字段")
+
             if op == "==":
                 return left_val == right_val
             elif op == ">":
@@ -682,47 +833,37 @@ class Executor:
                 return left_val != right_val
 
             elif op == "and":
-                return self.eval_condition(left, row) and self.eval_condition(
-                    right, row
-                )
+                return self.eval_condition(left, row) and self.eval_condition(right, row)
 
             elif op == "or":
                 return self.eval_condition(left, row) or self.eval_condition(right, row)
+
+        elif condition[0] == "unary":
+            op = condition[1]
+            expr = condition[2]
+            if op == "NOT":
+                return not self.eval_condition(expr, row)
 
         return False
 
     def run(self, ast):
         """运行整个程序"""
-        self.execute(ast)
+        return self.execute(ast)
 
 
-# def run_sql(sql, executor):
-#     lexer = Lexer(sql)
-#     tokens = lexer.tokenize()
-#     parser = Parser(tokens)
-#     ast = parser.parse()
-#     return executor.execute(ast)
 
 
 if __name__ == "__main__":
 
     sql1 = """
-    CREATE TABLE users(id INT, name String);
-    INSERT INTO users VALUES (id = (1 + 1) * 3, name = 'Alice');
-    INSERT INTO users VALUES (id = 2, name = 'Bob');
-    INSERT INTO users VALUES (id = 3, name = 'Charlie');
-    INSERT INTO users VALUES (id = 4, name = 'David');
-    INSERT INTO users VALUES (id = 5, name = 'Eve');
-    INSERT INTO users VALUES (id = 6, name = 'Frank');
-    UPDATE users set name = 'Alice' where id >= 1 and name == 'Bob';
-    SELECT name from users where id >= 2 and id <= 5 ORDERBY id DESC LIMIT 2 OFFSET 1;
-    SELECT name from users  ORDERBY id LIMIT 2 OFFSET 2;
-    SELECT name from users where id >= 2 and id <= 5 LIMIT 2 OFFSET 1;
-    SELECT name from users where id >= 2 and id <= 5 OFFSET 1;
+        CREATE TABLE products(id INT, name STRING, price FLOAT, stock INT);
+        INSERT INTO products VALUES (id = 1, name = 'Laptop', price = 999.99, stock = 10);
+        INSERT INTO products VALUES (id = 2, name = 'Phone', price = 699.99, stock = 20);
+        INSERT INTO products VALUES (id = 3, name = 'Tablet', price = 399.99, stock = 15);
+        SELECT * FROM products orderby price asc limit 2 offset 1;
+
     """
-    sql_commands = """
-    update users set name = 'Alice' where id >= 1 and name == 'Bob';
-    """
+
     lexer = Lexer(sql1)
     tokens = lexer.tokenize()
     print(f"token :  \n{tokens}")
