@@ -30,7 +30,7 @@ SAMPLE_QUERIES = [
     },
     {
         "name": "INSERT",
-        "description": "插入用户、订单、产品相关数据",
+        "description": "插入用户、订单、产品、商家相关数据",
         "query": """
             INSERT INTO users VALUES (id = 1, name = 'Ali' + 'ce', age = 25);
             INSERT INTO users VALUES (id = 2, name = 'Bo' * 2, age = 30);
@@ -58,7 +58,7 @@ SAMPLE_QUERIES = [
     },
     {
         "name": "SELECT",
-        "description": "创建产品表，执行分组统计和条件查询",
+        "description": "多表条件查询",
         "query": """
             SELECT * FROM users;
             SELECT name, age FROM users WHERE age > 25;
@@ -70,7 +70,7 @@ SAMPLE_QUERIES = [
     },
     {
         "name": "DELETE",
-        "description": "创建多表关联，执行复杂查询与聚合",
+        "description": "条件删除",
         "query": """
             DELETE FROM orders WHERE amount < 100 AND status == 'pending';
             DELETE FROM users WHERE id == 4;
@@ -78,7 +78,7 @@ SAMPLE_QUERIES = [
     },
     {
         "name": "UPDATA",
-        "description": "创建多表关联，执行复杂查询与聚合",
+        "description": "更新",
         "query": """
             UPDATE products SET stock = 5 WHERE id == 1;
         """,
@@ -271,9 +271,9 @@ with st.sidebar:
 # 主编辑器区域
 st.subheader("📝 SQL 编辑器", divider="grey")
 st.caption(
-    "💡 支持: CREATE TABLE, INSERT, SELECT, JOIN, WHERE, GROUP BY, HAVING 等SQL操作"
+    "💡 支持: CREATE TABLE, INSERT, SELECT, DELETE, UPDATE, JOIN, WHERE, ORDERBY, LIMIT, OFFSET等SQL操作"
 )
-st.caption("💡 语法示例: INSERT INTO users VALUES (id=1, name='Alice', age=25)")
+st.caption("💡 提示：可以打开左侧边框查看测试案例库哦")
 
 # 使用表单创建SQL编辑器
 with st.form("sql_editor_form"):

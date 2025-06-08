@@ -432,6 +432,7 @@ class Parser:
                 self.advance()
                 sort = [id, "DESC"]
             else:
+                self.advance()
                 sort = [id, "ASC"]
 
         limit = None
@@ -762,7 +763,7 @@ class Executor:
 
             if not all:
                 if offset + limit <= len(result):
-                    final_result = result[offset : offset + limit - 1]
+                    final_result = result[offset : offset + limit] 
                 else:
                     raise ValueError("请求范围超过结果范围")
             else:
@@ -902,22 +903,7 @@ class Executor:
         return self.execute(ast)
 
 
-# def run_sql(sql, executor):
-#     lexer = Lexer(sql)
-#     tokens = lexer.tokenize()
-#     parser = Parser(tokens)
-#     ast = parser.parse()
-#     return executor.execute(ast)
 
-"""
-CrEate table score(id INT, score INT);
-INSERT INTO score VALUES (id = 1, score = 90);
-INSERT INTO score (id, score) VALUES (2, 85);
-INSERT INTO score VALUES (id = 3, score = 80);
-INSERT INTO score VALUES (id = 4, score = 75);
-INSERT INTO score VALUES (id = 5, score = 70);
-INSERT INTO score VALUES (id = 6, score = 65);
-"""
 
 if __name__ == "__main__":
 
