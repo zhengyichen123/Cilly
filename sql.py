@@ -364,12 +364,12 @@ class Parser:
         3. SELECT * FROM users u JOIN orders o ON u.id == o.user_id;
         4. SELECT * FROM users ORDER BY id DESC LIMIT 10 OFFSET 5;
 
-        SELECT [DISTINCT] select_list
-        FROM table_source
+        SELECT select_list [AS alias]
+        FROM table_source [JOIN table_source ON join_condition]
         [WHERE row_filter]
-        [GROUP BY grouping_condition]
+        [GROUPBY grouping_condition]
         [HAVING group_filter]
-        [ORDER BY sort_expression]
+        [ORDERBY sort_expression]
         [LIMIT limit_count]
         [OFFSET offset_count];
 
@@ -777,11 +777,15 @@ class Executor:
                 result = aggregated_result
             else:
                 agg_row = {}
-                flag = 0
+                flag1 = 0
+                flag2 = 0
                 for i, field in enumerate(fields):
                     expr = field  # field = [ID, field, func, MUL]
                     if expr[0] == "func":
-                        flag = 1
+                        flag1 = 1
+                        if flag2 == 1:
+                            raise SyntaxError(
+                                f"在单值查询中，SELECT 子句聚合函数和字段不能同时出现")
                         func_name = expr[1]  # COUNT / SUM / AVG / MIN / MAX
                         values = [self.eval_expr(expr[2], row) for row in result if self.eval_expr(expr[2], row) is not None]
 
@@ -799,10 +803,12 @@ class Executor:
                         continue
                     else:
                         # 非聚合字段必须是 GROUP BY 的字段，否则应报错（SQL 规范）
-                        if flag == 1:
+                        if flag1 == 1:
                             raise SyntaxError(
-                                f"无效字段 {self.eval_ID(expr)}：在包含 GROUP BY 的查询中，SELECT 子句必须明确列出字段或使用聚合函数"
+                                f"没有使用 GROUP BY 子句，则 SELECT 列表中不能同时包含聚合函数和非聚合字段."
                             )
+                        else:
+                            flag2 = 1
                 if len(agg_row) > 0:  # 聚合字段
                     result = [agg_row]
 
@@ -1017,23 +1023,18 @@ if __name__ == "__main__":
         INSERT INTO products VALUES (id = 3, name = 'Tablet', price = 1.5);
         INSERT INTO merchants VALUES (id = 1, name = '联想');
         INSERT INTO merchants VALUES (id = 2, name = '苹果');
-        SELECT * FROM users;
-        SELECT name, age FROM users WHERE age > 25;
-        SELECT users.name, orders.id, orders.status FROM users JOIN orders ON users.id == orders.user_id WHERE name == 'Alice';
-        SELECT users.name, products.name, merchants.name, orders.counts FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id JOIN merchants ON orders.merchant_id == merchants.id ORDERBY orders.counts DESC LIMIT 2 OFFSET 1;
         SELECT users.name, COUNT(*) AS total_orders, SUM(orders.counts) AS total_items FROM users JOIN orders ON users.id == orders.user_id GROUPBY users.name HAVING total_orders >= 3 ORDERBY total_items DESC;
-        SELECT name, SUM(products.price * orders.counts) AS total_amounts FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id GROUPBY name ORDERBY total_amounts DESC;
     """
     sql_commands = """
     SELECT * FROM users;
     SELECT name, age FROM users WHERE age > 25;
-    SELECT users.name, orders.count, orders.status FROM users JOIN orders ON users.id == orders.user_id WHERE name == 'Alice';
-    select users.name, products.name, orders.status FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id;
-    select users.name, products.name, merchants.name, orders.count from users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id JOIN merchants ON orders.merchant_id == merchants.id orderby orders.count desc;
-    SELECT * FROM products orderby price desc limit 2 offset 1;
-    DELETE FROM orders WHERE count < 100 AND status == 'pending';
+    SELECT users.name, orders.id, orders.status FROM users JOIN orders ON users.id == orders.user_id WHERE name == 'Alice';
+    SELECT users.name, products.name, merchants.name, orders.counts FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id JOIN merchants ON orders.merchant_id == merchants.id ORDERBY orders.counts DESC LIMIT 2 OFFSET 1;
+    SELECT users.name, COUNT(*) AS total_orders, SUM(orders.counts) AS total_items FROM users JOIN orders ON users.id == orders.user_id GROUPBY users.name HAVING total_orders >= 3 ORDERBY total_items DESC;
+    SELECT name, SUM(products.price * orders.counts) AS total_amounts FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id GROUPBY name ORDERBY total_amounts DESC;
+    DELETE FROM orders WHERE counts < 3 AND status == 'pending';
     DELETE FROM users WHERE id == 4;
-    UPDATE products SET stock = 5 WHERE id == 1;
+    UPDATE products SET price = 5.0 WHERE id == 1;
     """
 
     lexer = Lexer(sql1)
