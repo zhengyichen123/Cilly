@@ -23,8 +23,8 @@ SAMPLE_QUERIES = [
         "description": "创建用户表，订单表，产品表，商家表",
         "query": """
             CREATE TABLE users(id INT, name STRING, age INT);
-            CREATE TABLE orders(id INT, user_id INT, product_id INT, merchant_id int, amount FLOAT, status STRING);
-            CREATE TABLE products(id INT, name STRING, price FLOAT, stock INT);
+            CREATE TABLE orders(id INT, user_id INT, merchant_id INT, product_id INT, counts INT, status STRING);
+            CREATE TABLE products(id INT, name STRING, price FLOAT);
             cReAte TABLE merchants(id INT, name STRING);
         """,
     },
@@ -36,22 +36,22 @@ SAMPLE_QUERIES = [
             INSERT INTO users VALUES (id = 2, name = 'Bo' * 2, age = 30);
             INSERT INTO users VALUES (id = 3, name = 'Charlie', age = 22);
             INSERT INTO users VALUES (id = 4, name = 'David', age = 23);
-            INSERT INTO orders (id, user_id, product_id, merchant_id, amount, status) VALUES (1, 1, 1,1, 100.5, 'paid');
-            INSERT INTO orders VALUES (id = 2, user_id = 2, product_id =( 1 + 3 ) * 5 - 17, merchant_id = 2, amount = 200.75, status = 'pending');
-            INSERT INTO orders VALUES (id = 3, user_id = 2 * 1, product_id = 1, merchant_id = 1,amount = 50.0 * 3, status = 'paid');
-            INSERT INTO orders VALUES (id = 4, user_id = 3, product_id = 2, merchant_id = 2,amount = 75.25, status = 'pending');
-            INSERT INTO orders VALUES (id = 5, user_id = 2, product_id = 2, merchant_id = 1,amount = 100, status = 'paid');
-            INSERT INTO orders VALUES (id = 6, user_id = 3, product_id = 3, merchant_id = 2,amount = 25.0 * 3, status = 'paid');
-            INSERT INTO orders VALUES (id = 7, user_id = 1, product_id = 1, merchant_id = 1,amount = 55, status = 'paid');
-            INSERT INTO orders VALUES (id = 8, user_id = 1, product_id = 2,merchant_id = 2, amount = 599, status = 'paid');
-            INSERT INTO orders VALUES (id = 9, user_id = 1, product_id = 3, merchant_id = 2,amount = 895, status = 'paid');
-            INSERT INTO orders VALUES (id = 10, user_id = 3, product_id = 1, merchant_id = 2,amount = 55, status = 'paid');
-            INSERT INTO orders VALUES (id = 11, user_id = 4, product_id = 1, merchant_id = 1,amount = 999, status = 'paid');
-            INSERT INTO orders VALUES (id = 12, user_id = 4, product_id = 2, merchant_id = 1,amount = 699, status = 'paid');
-            INSERT INTO orders VALUES (id = 13, user_id = 4, product_id = 3, merchant_id = 1,amount = 399, status = 'paid');
-            INSERT INTO products VALUES (id = 1, name = 'Laptop', price = 999.99, stock = 10);
-            INSERT INTO products VALUES (id = 2, name = 'Phone', price = 699.99, stock = 20);
-            INSERT INTO products VALUES (id = 3, name = 'Tablet', price = 399.99, stock = 15);
+            INSERT INTO orders (id, user_id, product_id, merchant_id, counts, status) VALUES (1, 1, 1, 1, 2, 'paid');
+            INSERT INTO orders VALUES (id = 2, user_id = 2, product_id =( 1 + 3 ) * 5 - 17, merchant_id = 2, counts = 1, status = 'pending');
+            INSERT INTO orders VALUES (id = 3, user_id = 2, product_id = 1, merchant_id = 1, counts = 3, status = 'paid');
+            INSERT INTO orders VALUES (id = 4, user_id = 3, product_id = 2, merchant_id = 2, counts = 2, status = 'pending');
+            INSERT INTO orders VALUES (id = 5, user_id = 2, product_id = 2, merchant_id = 1, counts = 1, status = 'paid');
+            INSERT INTO orders VALUES (id = 6, user_id = 3, product_id = 3, merchant_id = 2, counts = 3, status = 'paid');
+            INSERT INTO orders VALUES (id = 7, user_id = 1, product_id = 1, merchant_id = 1, counts = 5, status = 'paid');
+            INSERT INTO orders VALUES (id = 8, user_id = 1, product_id = 2, merchant_id = 2, counts = 2, status = 'paid');
+            INSERT INTO orders VALUES (id = 9, user_id = 1, product_id = 3, merchant_id = 2, counts = 3, status = 'paid');
+            INSERT INTO orders VALUES (id = 10, user_id = 3, product_id = 1, merchant_id = 2,counts = 5, status = 'paid');
+            INSERT INTO orders VALUES (id = 11, user_id = 4, product_id = 1, merchant_id = 1,counts = 1, status = 'paid');
+            INSERT INTO orders VALUES (id = 12, user_id = 4, product_id = 2, merchant_id = 1,counts = 3, status = 'paid');
+            INSERT INTO orders VALUES (id = 13, user_id = 4, product_id = 3, merchant_id = 1,counts = 2, status = 'paid');
+            INSERT INTO products VALUES (id = 1, name = 'Laptop', price = 2.5);
+            INSERT INTO products VALUES (id = 2, name = 'Phone', price = 5.0);
+            INSERT INTO products VALUES (id = 3, name = 'Tablet', price = 1.5);
             INSERT INTO merchants VALUES (id = 1, name = '联想');
             INSERT INTO merchants VALUES (id = 2, name = '苹果');
         """,
@@ -62,17 +62,17 @@ SAMPLE_QUERIES = [
         "query": """
             SELECT * FROM users;
             SELECT name, age FROM users WHERE age > 25;
-            SELECT users.name, orders.amount, orders.status FROM users JOIN orders ON users.id == orders.user_id WHERE name == 'Alice';
-            select users.name, products.name, orders.status FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id;
-            select users.name, products.name, merchants.name, orders.amount from users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id JOIN merchants ON orders.merchant_id == merchants.id orderby orders.amount desc;
-            SELECT * FROM products orderby price desc limit 2 offset 1;
+            SELECT users.name, orders.id, orders.status FROM users JOIN orders ON users.id == orders.user_id WHERE name == 'Alice';
+            SELECT users.name, products.name, merchants.name, orders.counts FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id JOIN merchants ON orders.merchant_id == merchants.id ORDERBY orders.counts DESC LIMIT 2 OFFSET 1;
+            SELECT users.name, COUNT(*) AS total_orders, SUM(orders.counts) AS total_items FROM users JOIN orders ON users.id == orders.user_id GROUPBY users.name HAVING total_orders >= 3 ORDERBY total_items DESC;
+            SELECT name, SUM(products.price * orders.counts) AS total_amounts FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id GROUPBY name ORDERBY total_amounts DESC;
         """,
     },
     {
         "name": "DELETE",
         "description": "条件删除",
         "query": """
-            DELETE FROM orders WHERE amount < 100 AND status == 'pending';
+            DELETE FROM orders WHERE counts < 3 AND status == 'pending';
             DELETE FROM users WHERE id == 4;
         """,
     },
@@ -80,7 +80,7 @@ SAMPLE_QUERIES = [
         "name": "UPDATA",
         "description": "更新",
         "query": """
-            UPDATE products SET stock = 5 WHERE id == 1;
+            UPDATE products SET price = 5.0 WHERE id == 1;
         """,
     },
 ]

@@ -213,6 +213,17 @@ class Parser:
         right = self.expect(["ID"])
         return ["field", left[1], right.value]
 
+    def func_call(self, func_name):
+        self.expect(["LPAREN"])
+        # 要么一个 *,要么是表达式
+        if self.peek().type == "MUL":
+            expr = self.peek().get()
+            self.advance()
+        else: 
+            expr = self.parse_expr()
+        self.expect(["RPAREN"])
+        return ["func", func_name, expr]
+
     op2 = {
         "DOT": (90, 91, field_access),
         "MUL": (80, 81, binary),
@@ -366,28 +377,35 @@ class Parser:
         """
         self.expect(["SELECT"])
         fields = []
+        alias = []
         while self.peek() and self.peek().type != "FROM":
-            table = self.expect(["ID", "MUL"]).value
-            field = None
-            if self.peek() and self.peek().type == "DOT":
-                self.advance()
-                field = self.expect(["ID"]).value
-
-            if field is None:
-                # [table, colomn]
-                fields.append(["field", field, table])
+            if self.peek().type in ["SUM", "AVG", "MIN", "MAX", "COUNT"]:
+                fields.append(
+                    self.func_call(
+                        self.expect(["SUM", "AVG", "MIN", "MAX", "COUNT"]).type
+                    )
+                )
+                ali = None
+                if self.peek() and self.peek().type == "AS":
+                    self.advance()
+                    ali = self.expect(["ID"]).value
+                alias.append(ali)
+            elif self.peek() and self.peek().type == "MUL":
+                fields.append(self.literal(0))
+                alias.append(None) 
             else:
-                fields.append(["field", table, field])
+                fields.append(self.parse_expr())
+                ali = None
+                if self.peek() and self.peek().type == "AS":
+                    self.advance()
+                    ali = self.expect(["ID"]).value
+                alias.append(ali)
 
             if self.peek() and self.peek().type == "COMMA":
                 self.advance()
 
         self.expect(["FROM"])
         table_name = self.expect(["ID"]).value
-
-        for field in fields:
-            if field[1] is None:
-                fields[fields.index(field)] = ["field", table_name, field[2]]
 
         joins = []
         while self.peek() and self.peek().type == "JOIN":
@@ -456,6 +474,7 @@ class Parser:
             sort,
             limit,
             offset,
+            alias,
         ]
 
     def parse_update(self):
@@ -521,6 +540,7 @@ class Executor:
     def __init__(self):
         self.tables = {}
         self.cur_table = None
+        self.alias_map = {}    
 
     def execute(self, ast):
         """执行 AST 的入口函数"""
@@ -589,14 +609,14 @@ class Executor:
             update_count = 0
 
             for row in self.tables[table_name]["data"]:
-                if condition is None or self.eval_condition(
+                if condition is None or self.eval_expr(
                     condition, {f"{table_name}.{k}": v for k, v in row.items()}
                 ):
                     for field, expr in updates:
                         row[field] = self.eval_expr(expr)
                     update_count += 1
 
-            print(f"更新了{table_name}的{update_count}行")
+            print(f"更新了 `{table_name}` 的 {update_count} 行")
             return ("update", f"更新了 `{table_name}` 的 {update_count} 行")
 
         elif stmt_type == "delete":
@@ -618,7 +638,7 @@ class Executor:
                 self.tables[table_name]["data"] = [
                     row
                     for row in original_data
-                    if not self.eval_condition(
+                    if not self.eval_expr(
                         condition, {f"{table_name}.{k}": v for k, v in row.items()}
                     )
                 ]
@@ -630,15 +650,23 @@ class Executor:
 
         elif stmt_type == "select":
             table_name = stmt[1]  # 主表名字
-            fields = stmt[2]  # list[0] = [table, colomn]
+            fields = stmt[2]  # list = [ID, field, func, MUL]
             joins = stmt[3]
             condition = stmt[4]
             groups = stmt[5]
             sort = stmt[6]
             limit = stmt[7]
             offset = stmt[8]
+            alias = stmt[9]  # list = [alias_name]
 
             self.cur_table = table_name
+            seen_aliases = set()
+            for i, alias_name in enumerate(alias):
+                if alias_name is not None:
+                    if alias_name in seen_aliases:
+                        raise SyntaxError(f"别名 '{alias_name}' 已经被定义过，不能重复使用")
+                    seen_aliases.add(alias_name)
+                    self.alias_map[alias_name] = self.eval_ID(fields[i], i)
 
             if table_name not in self.tables:
                 print(f"表 `{table_name}` 不存在")
@@ -663,11 +691,15 @@ class Executor:
                     temp = []
                     for main_data in main_table:
                         for join_data in join_table:
-                            main_data.update(join_data)
-                            temp.append(main_data.copy())
+                            merged = {
+                                key: value
+                                for data in (main_data, join_data)
+                                for key, value in data.items()
+                            }
+                            temp.append(merged)
 
                     for row in temp:
-                        if join[1] is None or self.eval_condition(join[1], row):
+                        if join[1] is None or self.eval_expr(join[1], row):
                             join_result.append(row)
 
                     main_table = join_result
@@ -681,9 +713,9 @@ class Executor:
                     for row in self.tables[table_name]["data"]
                 ]
 
-            result = [] # where之后的结果
+            result = []  # where之后的结果
             for row in join_result:
-                if condition is None or self.eval_condition(condition, row):
+                if condition is None or self.eval_expr(condition, row):
                     result.append(row)
 
             # groups : [depend, cond] depend是分组字段[ID, field]
@@ -695,59 +727,104 @@ class Executor:
                 grouped_data = defaultdict(list)
 
                 for row in result:
-                    group_key = tuple(row.get(self.eval_expr(key)[1]) for key in group_keys)
+                    group_key = tuple(self.eval_expr(key, row) for key in group_keys)
                     grouped_data[group_key].append(row)
 
                 aggregated_result = []
                 for key, rows in grouped_data.items():
                     if isinstance(key, tuple):
-                        group_dict = {self.eval_expr(k)[1]: v for k, v in zip(group_keys, key)}
+                        group_dict = {
+                            self.eval_ID(k): v for k, v in zip(group_keys, key)
+                        }
                     else:
-                        group_dict = {self.eval_expr(group_keys[0])[1]: key}
+                        group_dict = {self.eval_ID(group_keys[0]): key}
 
-                    # group_dict = {name : alice, age : 20}
+                    # group_dict = {table.name : alice, table.age : 20}
                     agg_row = {}
                     agg_row.update(group_dict)
 
-                    for field in fields:
-                        expr = field  # ["field", table, column]
-                        if expr[2] in ["COUNT", "SUM", "AVG", "MIN", "MAX"]:
-                            col_name = self.eval_expr(expr[2])
-                            func_name = expr[2]  # COUNT / SUM / AVG / MIN / MAX
+                    for i, field in enumerate(fields):
+                        expr = field  # field = [ID, field, func, MUL]
+                        if expr[0] == "func":
 
-                            values = [row.get(col_name) for row in rows if col_name in row]
+                            func_name = expr[1]  # COUNT / SUM / AVG / MIN / MAX
+                            values = [self.eval_expr(expr[2], row) for row in rows if self.eval_expr(expr[2], row) is not None]
 
                             if func_name == "COUNT":
-                                agg_row[col_name] = len(values)
+                                agg_row[self.eval_ID(expr, i)] = len(values)
                             elif func_name == "SUM":
-                                agg_row[col_name] = sum(values)
+                                agg_row[self.eval_ID(expr, i)] = sum(values)
                             elif func_name == "AVG":
-                                agg_row[col_name] = sum(values) / len(values) if values else None
+                                agg_row[self.eval_ID(expr, i)] = sum(values) / len(values) if values else None
                             elif func_name == "MIN":
-                                agg_row[col_name] = min(values) if values else None
+                                agg_row[self.eval_ID(expr, i)] = min(values) if values else None
                             elif func_name == "MAX":
-                                agg_row[col_name] = max(values) if values else None
+                                agg_row[self.eval_ID(expr, i)] = max(values) if values else None
+                        elif expr[0] == "MUL":
+                            continue
                         else:
                             # 非聚合字段必须是 GROUP BY 的字段，否则应报错（SQL 规范）
-                            agg_row[expr[2]] = group_dict.get(expr[2])
+                            if group_dict.get(self.eval_ID(expr), "error") == "error":
+                                raise SyntaxError(
+                                    f"无效字段 {self.eval_ID(expr)}：在包含 GROUP BY 的查询中，SELECT 子句必须明确列出字段或使用聚合函数"
+                                )
 
-                    # Step 4: 应用 HAVING 条件
+                    # 应用 HAVING 条件
                     # 聚合函数字段必须先取别名，然后才能应用 HAVING, ORDERBY 条件
-                    if having_cond is None or self.eval_condition(having_cond, agg_row):
+                    if having_cond is None or self.eval_expr(having_cond, agg_row):
                         aggregated_result.append(agg_row)
 
                 result = aggregated_result
-                pass
+            else:
+                agg_row = {}
+                flag = 0
+                for i, field in enumerate(fields):
+                    expr = field  # field = [ID, field, func, MUL]
+                    if expr[0] == "func":
+                        flag = 1
+                        func_name = expr[1]  # COUNT / SUM / AVG / MIN / MAX
+                        values = [self.eval_expr(expr[2], row) for row in result if self.eval_expr(expr[2], row) is not None]
+
+                        if func_name == "COUNT":
+                            agg_row[self.eval_ID(expr, i)] = len(values)
+                        elif func_name == "SUM":
+                            agg_row[self.eval_ID(expr, i)] = sum(values)
+                        elif func_name == "AVG":
+                            agg_row[self.eval_ID(expr, i)] = sum(values) / len(values) if values else None
+                        elif func_name == "MIN":
+                            agg_row[self.eval_ID(expr, i)] = min(values) if values else None
+                        elif func_name == "MAX":
+                            agg_row[self.eval_ID(expr, i)] = max(values) if values else None
+                    elif expr[0] == "MUL":
+                        continue
+                    else:
+                        # 非聚合字段必须是 GROUP BY 的字段，否则应报错（SQL 规范）
+                        if flag == 1:
+                            raise SyntaxError(
+                                f"无效字段 {self.eval_ID(expr)}：在包含 GROUP BY 的查询中，SELECT 子句必须明确列出字段或使用聚合函数"
+                            )
+                if len(agg_row) > 0:  # 聚合字段
+                    result = [agg_row]
 
             if sort is not None:
-                field = sort[0]
-                field = self.eval_expr(field)
-                if field[1] not in result[0].keys():
-                    raise Exception("排序字段不存在")
+                sort_field = None
+                if sort[0][0] == "ID":
+                    sort_field = self.eval_ID(sort[0])
+                    if sort_field not in result[0].keys():
+                        if sort[0][1] in self.alias_map.keys():
+                            sort_field = self.alias_map[sort[0][1]]
+                        else:
+                            raise Exception("排序字段不存在")
+                elif sort[0][0] == "field": 
+                    sort_field = self.eval_ID(sort[0])
+                    if sort_field not in result[0].keys():
+                        raise Exception("排序字段不存在")
+                else:
+                    raise Exception("排序字段不存在")      
 
                 sort_way = sort[1]
                 result = sorted(
-                    result, key=lambda x: x.get(field[1]), reverse=(sort_way == "DESC")
+                    result, key=lambda x: x.get(sort_field), reverse=(sort_way == "DESC")
                 )
 
             if offset is not None and offset < 0:
@@ -763,7 +840,7 @@ class Executor:
 
             if not all:
                 if offset + limit <= len(result):
-                    final_result = result[offset : offset + limit] 
+                    final_result = result[offset : offset + limit]
                 else:
                     raise ValueError("请求范围超过结果范围")
             else:
@@ -776,24 +853,37 @@ class Executor:
 
             all = False
             for field in fields:
-                if field[2] == "*":
+                if field[1] == "*":
                     all = True
                     break
 
             if all == False:
-                selected_fields = [self.eval_expr(field)[1] for field in fields]
-                final_result = [
-                    {field: row[field] for field in selected_fields}
-                    for row in final_result
-                ]
+                selected_fields = [self.eval_ID(field, i) for i, field in enumerate(fields)]
+            else:
+                selected_fields = [field for field in result[0].keys()]
 
+            reversed_alias_map = {v: k for k, v in self.alias_map.items()}
+            final_result = [
+                {reversed_alias_map[field] if field in reversed_alias_map.keys() else field : row[field] for field in selected_fields}
+                for row in final_result
+            ]
+
+            self.alias_map = {}
             print(
                 f"查询 `{table_name}` 的结果(从第{offset}条开始显示{len(final_result)}条记录，共{len(result)}条): {final_result}"
             )
             return ("select", final_result)
 
-    def eval_expr(self, expr, row):
-        # 算术表达式
+    def eval_ID(self, expr, index = 0):
+        if expr[0] == "ID":
+            return f"{self.cur_table}.{expr[1]}"
+        if expr[0] == "field":
+            return f"{expr[1]}.{expr[2]}"
+        if expr[0] == "func":
+            return f"{expr[1]}_{index}"
+
+    def eval_expr(self, expr, row={}):
+        # 表达式
         if expr[0] == "INT":
             return expr[1]
         elif expr[0] == "FLOAT":
@@ -803,98 +893,93 @@ class Executor:
         elif expr[0] in ["TRUE", "FALSE"]:
             return expr[0] == "TRUE"  # 布尔值转换
         elif expr[0] == "ID":
-            return [
-                "ID",
-                f"{self.cur_table}.{expr[1]}",
-            ]  # ID 返回名称，实际值在条件中处理
-        elif expr[0] == "unary":
-            return -expr[2]
+            ex = row.get(f"{self.cur_table}.{expr[1]}", "error")
+            if ex == "error":
+                if expr[1] in self.alias_map.keys(): 
+                    ex = row.get(self.alias_map[expr[1]], "error")
+            if ex == "error":
+                raise Exception(f"字段名{expr[1]}不存在")
+            return ex
 
         elif expr[0] == "field":
-            return ["ID", f"{expr[1]}.{expr[2]}"]  # [table, colomn]
+            ex = row.get(f"{expr[1]}.{expr[2]}", "error")
+            if ex == "error":
+                raise Exception(f"字段名{expr[1]}.{expr[2]}不存在")
+            return ex
+
+        elif expr[0] == "unary":
+            op = expr[1]
+            if op == "-":
+                ex = self.eval_expr(expr[2], row)
+                return -ex
+            if op == "!":
+                ex = self.eval_expr(expr[2], row)
+                return not ex
 
         elif expr[0] == "binary":
-            left = self.eval_expr(expr[2])
-            right = self.eval_expr(expr[3])
             op = expr[1]
-            if op == "+":
-                if type(left) != type(right):
-                    raise TypeError(f"不支持的 + 运算: {type(left)} 和 {type(right)}")
+            left = self.eval_expr(expr[2], row)
+            right = self.eval_expr(expr[3], row)
 
-                return left + right
+            def typename(x):
+                return type(x).__name__
+
+            if op == "+":
+                if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+                    return left + right
+                elif isinstance(left, str) and isinstance(right, str):
+                    return left + right
+                else:
+                    raise TypeError(
+                        f"不支持的 + 运算: {typename(left)} 和 {typename(right)}"
+                    )
 
             elif op == "-":
-
-                if isinstance(left, int) and isinstance(right, int):
+                if isinstance(left, (int, float)) and isinstance(right, (int, float)):
                     return left - right
-
-                raise TypeError(f"不支持的 - 运算: {type(left)} 和 {type(right)}")
+                else:
+                    raise TypeError(
+                        f"不支持的 - 运算: {typename(left)} 和 {typename(right)}"
+                    )
 
             elif op == "*":
-
                 if isinstance(left, str) and isinstance(right, str):
                     raise TypeError(f"不支持的 * 运算: {type(left)} 和 {type(right)}")
-
                 return left * right
 
             elif op == "/":
-                if isinstance(left, int) and isinstance(right, int):
+                if isinstance(left, (int, float)) and isinstance(right, (int, float)):
                     if right == 0:
                         raise ZeroDivisionError("除数不能为0！")
-                    else:
-                        return left / right
+                    return left / right
                 else:
-                    raise TypeError(f"不支持的 / 运算: {type(left)} 和 {type(right)}")
+                    raise TypeError(
+                        f"不支持的 / 运算: {typename(left)} 和 {typename(right)}"
+                    )
 
-        return None
+            elif op == "==":
+                return left == right
 
-    def eval_condition(self, condition, row):
-        # 逻辑表达式
-        if condition[0] == "binary":
-            op = condition[1]
-            left = condition[2]
-            right = condition[3]
-
-            left_val = self.eval_expr(left)
-            if isinstance(left_val, list):
-                name = left_val[1]
-                left_val = row.get(name)
-                if left_val is None:
-                    raise ValueError(f"找不到{name} 字段")
-
-            right_val = self.eval_expr(right)
-            if isinstance(right_val, list):
-                name = right_val[1]
-                right_val = row.get(name)
-                if right_val is None:
-                    raise ValueError(f"找不到{name} 字段")
-
-            if op == "==":
-                return left_val == right_val
             elif op == ">":
-                return left_val > right_val
+                return left > right
+
             elif op == "<":
-                return left_val < right_val
+                return left < right
+
             elif op == ">=":
-                return left_val >= right_val
+                return left >= right
+
             elif op == "<=":
-                return left_val <= right_val
+                return left <= right
+
             elif op == "!=":
-                return left_val != right_val
+                return left != right
 
             elif op == "and":
-                return self.eval_condition(left, row) and self.eval_condition(
-                    right, row
-                )
+                return left and right
 
             elif op == "or":
-                return self.eval_condition(left, row) or self.eval_condition(right, row)
-
-        elif condition[0] == "unary":
-            op = condition[1]
-            expr = condition[2]
-            if op == "NOT":
-                return not self.eval_condition(expr, row)
+                return left or right
 
         return False
 
@@ -903,49 +988,52 @@ class Executor:
         return self.execute(ast)
 
 
-
-
 if __name__ == "__main__":
 
     sql1 = """
         CREATE TABLE users(id INT, name STRING, age INT);
-        CREATE TABLE orders(id INT, user_id INT, product_id INT, merchant_id int, amount FLOAT, status STRING);
-        CREATE TABLE products(id INT, name STRING, price FLOAT, stock INT);
+        CREATE TABLE orders(id INT, user_id INT, merchant_id INT, product_id INT, counts INT, status STRING);
+        CREATE TABLE products(id INT, name STRING, price FLOAT);
         cReAte TABLE merchants(id INT, name STRING);
         INSERT INTO users VALUES (id = 1, name = 'Ali' + 'ce', age = 25);
         INSERT INTO users VALUES (id = 2, name = 'Bo' * 2, age = 30);
         INSERT INTO users VALUES (id = 3, name = 'Charlie', age = 22);
         INSERT INTO users VALUES (id = 4, name = 'David', age = 23);
-        INSERT INTO orders (id, user_id, product_id, merchant_id, amount, status) VALUES (1, 1, 1,1, 100.5, 'paid');
-        INSERT INTO orders VALUES (id = 2, user_id = 2, product_id =( 1 + 3 ) * 5 - 17, merchant_id = 2, amount = 200.75, status = 'pending');
-        INSERT INTO orders VALUES (id = 3, user_id = 2 * 1, product_id = 1, merchant_id = 1,amount = 50.0 * 3, status = 'paid');
-        INSERT INTO orders VALUES (id = 4, user_id = 3, product_id = 2, merchant_id = 2,amount = 75.25, status = 'pending');
-        INSERT INTO orders VALUES (id = 5, user_id = 2, product_id = 2, merchant_id = 1,amount = 100, status = 'paid');
-        INSERT INTO orders VALUES (id = 6, user_id = 3, product_id = 3, merchant_id = 2,amount = 25.0 * 3, status = 'paid');
-        INSERT INTO orders VALUES (id = 7, user_id = 1, product_id = 1, merchant_id = 1,amount = 55, status = 'paid');
-        INSERT INTO orders VALUES (id = 8, user_id = 1, product_id = 2,merchant_id = 2, amount = 599, status = 'paid');
-        INSERT INTO orders VALUES (id = 9, user_id = 1, product_id = 3, merchant_id = 2,amount = 895, status = 'paid');
-        INSERT INTO orders VALUES (id = 10, user_id = 3, product_id = 1, merchant_id = 2,amount = 55, status = 'paid');
-        INSERT INTO orders VALUES (id = 11, user_id = 4, product_id = 1, merchant_id = 1,amount = 999, status = 'paid');
-        INSERT INTO orders VALUES (id = 12, user_id = 4, product_id = 2, merchant_id = 1,amount = 699, status = 'paid');
-        INSERT INTO orders VALUES (id = 13, user_id = 4, product_id = 3, merchant_id = 1,amount = 399, status = 'paid');
-        INSERT INTO products VALUES (id = 1, name = 'Laptop', price = 999.99, stock = 10);
-        INSERT INTO products VALUES (id = 2, name = 'Phone', price = 699.99, stock = 20);
-        INSERT INTO products VALUES (id = 3, name = 'Tablet', price = 399.99, stock = 15);
+        INSERT INTO orders (id, user_id, product_id, merchant_id, counts, status) VALUES (1, 1, 1, 1, 2, 'paid');
+        INSERT INTO orders VALUES (id = 2, user_id = 2, product_id =( 1 + 3 ) * 5 - 17, merchant_id = 2, counts = 1, status = 'pending');
+        INSERT INTO orders VALUES (id = 3, user_id = 2, product_id = 1, merchant_id = 1, counts = 3, status = 'paid');
+        INSERT INTO orders VALUES (id = 4, user_id = 3, product_id = 2, merchant_id = 2, counts = 2, status = 'pending');
+        INSERT INTO orders VALUES (id = 5, user_id = 2, product_id = 2, merchant_id = 1, counts = 1, status = 'paid');
+        INSERT INTO orders VALUES (id = 6, user_id = 3, product_id = 3, merchant_id = 2, counts = 3, status = 'paid');
+        INSERT INTO orders VALUES (id = 7, user_id = 1, product_id = 1, merchant_id = 1, counts = 5, status = 'paid');
+        INSERT INTO orders VALUES (id = 8, user_id = 1, product_id = 2, merchant_id = 2, counts = 2, status = 'paid');
+        INSERT INTO orders VALUES (id = 9, user_id = 1, product_id = 3, merchant_id = 2, counts = 3, status = 'paid');
+        INSERT INTO orders VALUES (id = 10, user_id = 3, product_id = 1, merchant_id = 2,counts = 5, status = 'paid');
+        INSERT INTO orders VALUES (id = 11, user_id = 4, product_id = 1, merchant_id = 1,counts = 1, status = 'paid');
+        INSERT INTO orders VALUES (id = 12, user_id = 4, product_id = 2, merchant_id = 1,counts = 3, status = 'paid');
+        INSERT INTO orders VALUES (id = 13, user_id = 4, product_id = 3, merchant_id = 1,counts = 2, status = 'paid');
+        INSERT INTO products VALUES (id = 1, name = 'Laptop', price = 2.5);
+        INSERT INTO products VALUES (id = 2, name = 'Phone', price = 5.0);
+        INSERT INTO products VALUES (id = 3, name = 'Tablet', price = 1.5);
         INSERT INTO merchants VALUES (id = 1, name = '联想');
         INSERT INTO merchants VALUES (id = 2, name = '苹果');
         SELECT * FROM users;
         SELECT name, age FROM users WHERE age > 25;
-        SELECT users.name, orders.amount, orders.status FROM users JOIN orders ON users.id == orders.user_id WHERE name == 'Alice';
-        select users.name, products.name, orders.status FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id;
-        select users.name, products.name, merchants.name, orders.amount from users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id JOIN merchants ON orders.merchant_id == merchants.id orderby orders.amount desc;
-        SELECT * FROM products orderby price desc limit 2 offset 1;
-        DELETE FROM orders WHERE amount < 100 AND status == 'pending';
-        DELETE FROM users WHERE id == 4;
-        UPDATE products SET stock = 5 WHERE id == 1;
+        SELECT users.name, orders.id, orders.status FROM users JOIN orders ON users.id == orders.user_id WHERE name == 'Alice';
+        SELECT users.name, products.name, merchants.name, orders.counts FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id JOIN merchants ON orders.merchant_id == merchants.id ORDERBY orders.counts DESC LIMIT 2 OFFSET 1;
+        SELECT users.name, COUNT(*) AS total_orders, SUM(orders.counts) AS total_items FROM users JOIN orders ON users.id == orders.user_id GROUPBY users.name HAVING total_orders >= 3 ORDERBY total_items DESC;
+        SELECT name, SUM(products.price * orders.counts) AS total_amounts FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id GROUPBY name ORDERBY total_amounts DESC;
     """
     sql_commands = """
-    SELECT name course.score from student JOIN course ON student.id == course.id where student.id >= 2 and id <= 5 LIMIT 2 OFFSET 1;
+    SELECT * FROM users;
+    SELECT name, age FROM users WHERE age > 25;
+    SELECT users.name, orders.count, orders.status FROM users JOIN orders ON users.id == orders.user_id WHERE name == 'Alice';
+    select users.name, products.name, orders.status FROM users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id;
+    select users.name, products.name, merchants.name, orders.count from users JOIN orders ON users.id == orders.user_id JOIN products ON orders.product_id == products.id JOIN merchants ON orders.merchant_id == merchants.id orderby orders.count desc;
+    SELECT * FROM products orderby price desc limit 2 offset 1;
+    DELETE FROM orders WHERE count < 100 AND status == 'pending';
+    DELETE FROM users WHERE id == 4;
+    UPDATE products SET stock = 5 WHERE id == 1;
     """
 
     lexer = Lexer(sql1)
